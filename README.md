@@ -27,14 +27,15 @@ poi apri http://localhost:8080.
 
 ## Pubblicazione
 
-- **App**: ogni push su `main` la pubblica su GitHub Pages (https://flecce.github.io/traim/) con
+- **App**: ogni push su `main` la pubblica su GitHub Pages (https://lecce.dev/traim/, dominio personalizzato
+  dell'account: `flecce.github.io/traim/` fa redirect lì) con
   `.github/workflows/pages.yml`. In GitHub: Settings → Pages → Source: **GitHub Actions**.
 - **Proxy ViaggiaTreno**: Cloudflare Worker in `cloudflare/` (https://traim-proxy.lecce-fabiano.workers.dev).
   `.github/workflows/worker.yml` lo ripubblica quando cambia `cloudflare/`; servono i secret
   `CLOUDFLARE_API_TOKEN` (token con permesso "Edit Cloudflare Workers") e `CLOUDFLARE_ACCOUNT_ID`.
   A mano: `cd cloudflare && npx wrangler deploy`.
 - `js/config.js` usa il proxy locale su `localhost` e il Worker altrove.
-- Google login: aggiungi `https://flecce.github.io` alle "Origini JavaScript autorizzate" del client OAuth.
+- Google login: aggiungi `https://lecce.dev` alle "Origini JavaScript autorizzate" del client OAuth.
 
 ## Dati salvati
 

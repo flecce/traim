@@ -3,7 +3,8 @@
 const API = 'https://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno';
 // Only the endpoints the app uses, so this is not an open proxy.
 const ENDPOINTS = new Set(['autocompletaStazione', 'partenze', 'andamentoTreno']);
-const ALLOWED_ORIGINS = ['https://flecce.github.io', 'http://localhost:8080'];
+// GitHub Pages serves the app on the account's custom domain (flecce.github.io redirects there).
+const ALLOWED_ORIGINS = ['https://lecce.dev', 'https://flecce.github.io', 'http://localhost:8080'];
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin');
