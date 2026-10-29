@@ -13,7 +13,6 @@ const toastEl = document.getElementById('toast');
 
 const SOURCE_NAMES = { vt: 'ViaggiaTreno', sta: 'STA' };
 
-let user = null;
 let refreshTimer = null;
 // Bumped on every navigation so late responses from a previous page are ignored.
 let renderTicket = 0;
@@ -157,6 +156,7 @@ function routeCard(r) {
           <span class="pill rc-count" id="count-${id}" hidden></span>
         </span>
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
+        <span class="rc-live" id="live-${id}"></span>
         <span class="rc-main" id="next-${id}"><span class="skeleton"></span></span>
         <span class="rc-then" id="then-${id}"></span>
       </a>
@@ -172,14 +172,25 @@ function highlightSoonest(departures) {
 
 async function loadNext(route, ticket, departures) {
   const el = (prefix) => (ticket === renderTicket ? document.getElementById(`${prefix}-${route.id}`) : null);
-  // The card shows the next departure; trains already on their way are only a fallback.
+  // The card shows trains already on their way above the next departure.
   const show = (trips) => {
     const main = el('next');
     if (!main) return;
     const upcoming = trips.filter((x) => x.status !== 'travelling');
+    const travelling = trips.filter((x) => x.status === 'travelling');
     const next = upcoming[0] ?? trips[0];
     const count = el('count');
     const then = el('then');
+    el('live').innerHTML = travelling
+      .map(
+        (x) => `
+        <span class="live-train">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span>${t('home.onTheWay', { train: esc(x.number), time: hhmm(x.arrExpected) })}</span>
+          ${delayBadge(x)}
+        </span>`,
+      )
+      .join('');
     if (!next) {
       main.innerHTML = `<span class="muted">${t('home.noTrains')}</span>`;
       return;
@@ -197,7 +208,7 @@ async function loadNext(route, ticket, departures) {
   };
   try {
     const { from, to } = await resolvedRoute(route);
-    const { trips } = await findTrains(from, to, { max: 4, onUpdate: (partial) => partial.length && show(partial) });
+    const { trips } = await findTrains(from, to, { max: 3, onUpdate: (partial) => partial.length && show(partial) });
     show(trips);
   } catch {
     const main = el('next');
@@ -443,9 +454,13 @@ function renderRoute(id, reversed) {
     if (ticket !== renderTicket) return;
     // Keep expanded trains expanded across refreshes.
     const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.key));
-    const [first, ...rest] = trips;
-    list.innerHTML = first
-      ? `${hero(first, from, to)}
+    // Trains already on their way are featured; with none, the next departure is.
+    const travelling = trips.filter((x) => x.status === 'travelling');
+    const upcoming = trips.filter((x) => x.status !== 'travelling');
+    const featured = travelling.length ? travelling : upcoming.slice(0, 1);
+    const rest = travelling.length ? upcoming : upcoming.slice(1);
+    list.innerHTML = featured.length
+      ? `<div class="heroes">${featured.map((x) => hero(x, from, to)).join('')}</div>
          ${rest.length ? `<h2 class="list-title">${t('route.upcoming')}</h2><div class="rows">${rest.map((x) => row(x, from, to)).join('')}</div>` : ''}`
       : `<p class="empty">${t('route.none')}</p>`;
     list.querySelectorAll('details').forEach((d) => (d.open = open.has(d.dataset.key)));
@@ -510,10 +525,17 @@ function installBlock() {
   return `<p class="muted">${t(`install.${state}`)}</p>`;
 }
 
+function avatar(u) {
+  const initial = esc((u.name || u.email).charAt(0).toUpperCase());
+  return u.picture
+    ? `<img class="avatar" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer" width="44" height="44">`
+    : `<span class="avatar">${initial}</span>`;
+}
+
 function renderSettings() {
   const s = settings.getSettings();
-  const connected = Boolean(user) && google.isConnected();
-  const sheet = connected && google.spreadsheetUrl();
+  const user = google.getUser();
+  const sheet = user && google.spreadsheetUrl();
   const themes = Object.fromEntries(settings.THEMES.map((k) => [k, t(`theme.${k}`)]));
 
   view.innerHTML = `
@@ -522,8 +544,14 @@ function renderSettings() {
     <div class="card settings-block">
       <h2>${t('settings.account')}</h2>
       ${
-        connected
-          ? `<p>${t('settings.signedInAs', { email: strong(user.email) })}</p>
+        user
+          ? `<div class="account">
+               ${avatar(user)}
+               <div class="account-who">
+                 <strong>${esc(user.name)}</strong>
+                 <span class="muted small">${esc(user.email)}</span>
+               </div>
+             </div>
              <p class="muted">${t('settings.driveInfo')}</p>
              <div class="row">
                ${sheet ? `<a class="btn" href="${esc(sheet)}" target="_blank" rel="noopener">${t('settings.openSheet')}</a>` : ''}
@@ -561,9 +589,8 @@ function renderSettings() {
 
   view.querySelector('#sign-in')?.addEventListener('click', () =>
     run(async () => {
-      await google.signIn();
-      user = await google.getUser();
-      await Promise.all([store.syncFromDrive(), settings.syncWithDrive()]);
+      await google.signInWithProfile();
+      await syncDrive();
       toast(t('settings.synced'));
       render();
     }),
@@ -571,7 +598,6 @@ function renderSettings() {
 
   view.querySelector('#sign-out')?.addEventListener('click', () => {
     google.signOut();
-    user = null;
     render();
   });
 
@@ -619,3 +645,37 @@ function render() {
 window.addEventListener('hashchange', render);
 settings.applySettings();
 render();
+
+/* ---------- Drive sync for a remembered sign-in ---------- */
+
+async function syncDrive() {
+  await Promise.all([store.syncFromDrive(), settings.syncWithDrive()]);
+}
+
+// Pull what other devices changed. Not while a new route is being typed: re-rendering would clear the form.
+async function syncAndRefresh() {
+  try {
+    await syncDrive();
+  } catch {
+    return;
+  }
+  if (!location.hash.startsWith('#/new')) {
+    renderNav();
+    render();
+  }
+}
+
+if (google.isSignedIn()) {
+  if (google.isConnected()) {
+    syncAndRefresh();
+  } else {
+    // An expired token can only be renewed after a click or tap, so wait for the first one
+    // (but not "Sign out": no point opening Google's window just to leave).
+    const renewOnFirstTap = async (event) => {
+      if (event.target.closest?.('#sign-out')) return;
+      window.removeEventListener('pointerdown', renewOnFirstTap, true);
+      if (google.isSignedIn() && (await google.reconnect())) syncAndRefresh();
+    };
+    window.addEventListener('pointerdown', renewOnFirstTap, true);
+  }
+}

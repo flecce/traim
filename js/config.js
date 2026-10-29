@@ -14,8 +14,8 @@ export const config = {
   // Name of the Google Sheet created in Drive to hold routes and settings.
   spreadsheetName: 'Traim',
 
-  // Current train + up to 3 following ones.
-  maxTrains: 4,
+  // Upcoming departures shown for a route, on top of the trains already on their way.
+  maxTrains: 3,
 
   refreshSeconds: 60,
 };

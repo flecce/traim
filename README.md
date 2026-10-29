@@ -30,6 +30,12 @@ poi apri http://localhost:8080.
 - **App**: ogni push su `main` la pubblica su GitHub Pages (https://lecce.dev/traim/, dominio personalizzato
   dell'account: `flecce.github.io/traim/` fa redirect lì) con
   `.github/workflows/pages.yml`. In GitHub: Settings → Pages → Source: **GitHub Actions**.
+- **Build** (`node tools/build.mjs [cartella]`, di default `_site/`): JS e CSS escono con l'hash del contenuto
+  nel nome (`app.d4dde90e.js`), quindi ogni rilascio scarica solo i file cambiati. `index.html` mantiene il nome
+  ma riceve l'id della build (`<meta name="traim-build">`), pubblicato anche in `version.json`: l'app aperta lo
+  controlla all'avvio, quando torna in primo piano e ogni 5 minuti, e si ricarica da sola se è uscita una
+  nuova versione (una volta sola per rilascio, mai mentre stai scrivendo in un campo). In locale (`dev`)
+  il controllo è spento.
 - **Proxy ViaggiaTreno**: Deno Deploy, codice in `deno/` (https://traim-proxy.flecce.deno.net). Risponde con i
   CORS per le origini dell'app e tiene in cache per 30 secondi le risposte riuscite (`X-Cache: HIT/MISS`).
   L'app `traim-proxy` su https://console.deno.com è collegata a questo repository e si ripubblica a ogni push;
@@ -73,6 +79,7 @@ Quando accedi:
 | `js/icons.js` | Icone SVG dell'interfaccia |
 | `js/pwa.js`, `sw.js`, `manifest.webmanifest` | Installazione come app e funzionamento offline dell'interfaccia |
 | `tools/make-icons.mjs` | Rigenera `icons/*.png` |
+| `tools/build.mjs` | Build del sito pubblicato: nomi con hash, `version.json` |
 | `dev-server.mjs` | Server statico + proxy ViaggiaTreno in locale |
 | `deno/` | Proxy ViaggiaTreno pubblicato su Deno Deploy |
 

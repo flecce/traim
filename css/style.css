@@ -333,7 +333,33 @@ a { color: var(--accent); }
 }
 
 .rc-platform { margin-left: auto; }
-.rc-then:empty { display: none; }
+.rc-then:empty, .rc-live:empty { display: none; }
+
+.rc-live { display: grid; gap: 4px; margin-top: 8px; }
+
+.live-train {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .85rem;
+  font-weight: 500;
+}
+
+.live-train > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-train .badge { flex: none; font-size: .72rem; padding: 1px 8px; }
+.live-dot { flex: none; }
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+@keyframes blink { 50% { opacity: .25; } }
+
+.heroes { display: grid; gap: 12px; }
 
 .big-time {
   font-size: 2.1rem;
@@ -622,6 +648,23 @@ a { color: var(--accent); }
 /* ---------- Settings ---------- */
 
 .settings-block { margin-top: 12px; }
+
+.account { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.account-who { display: grid; min-width: 0; }
+.account-who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--soon-bg);
+  color: var(--soon-text);
+  font-weight: 700;
+  object-fit: cover;
+}
 .settings-block p { margin: 0 0 12px; }
 .footnote { margin: 20px 4px 0; }
 
@@ -666,7 +709,7 @@ a { color: var(--accent); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton, .icon-btn.spinning .icon { animation: none; }
+  .skeleton, .icon-btn.spinning .icon, .live-dot { animation: none; }
 }
 
 /* ---------- Desktop ---------- */

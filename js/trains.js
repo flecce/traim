@@ -44,12 +44,16 @@ export async function resolveStation(station) {
 }
 
 // ViaggiaTreno wins for trains present in both: it reports where the train was actually detected.
+// Trains already on their way are always kept, on top of `max` upcoming departures.
 function merge(results, max) {
   const vtTrips = results.vt ?? [];
   const vtNumbers = new Set(vtTrips.map((t) => t.trainNumber));
-  return [...vtTrips, ...(results.sta ?? []).filter((t) => !vtNumbers.has(t.trainNumber))]
-    .sort((a, b) => a.depPlanned - b.depPlanned)
-    .slice(0, max);
+  const all = [...vtTrips, ...(results.sta ?? []).filter((t) => !vtNumbers.has(t.trainNumber))].sort(
+    (a, b) => a.depPlanned - b.depPlanned,
+  );
+  const travelling = all.filter((t) => t.status === 'travelling');
+  const upcoming = all.filter((t) => t.status !== 'travelling').slice(0, max);
+  return [...travelling, ...upcoming];
 }
 
 // Calls onUpdate(trips, errors) every time a source answers, so the fast one shows up first.
@@ -62,7 +66,8 @@ export async function findTrains(from, to, { max = config.maxTrains, onUpdate } 
   const run = async (name, mod) => {
     sources.push(name);
     try {
-      results[name] = await mod.findTrips(from, to, now, max);
+      // Ask for a few more: trains already on their way also count towards a source's limit.
+      results[name] = await mod.findTrips(from, to, now, max + 2);
     } catch (err) {
       errors[name] = err;
     }
