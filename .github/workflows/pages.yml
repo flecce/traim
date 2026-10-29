@@ -20,12 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Only the static app is published; dev tools, the proxy and the worker stay out.
-      - name: Collect site files
-        run: |
-          mkdir _site
-          cp -r index.html manifest.webmanifest sw.js css js icons _site/
-          touch _site/.nojekyll
+      # Only the static app is published, with content-hashed JS/CSS names and a version.json
+      # that open pages poll to reload on a new release. Dev tools and the proxy stay out.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build site
+        run: node tools/build.mjs _site
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

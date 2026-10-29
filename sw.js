@@ -1,5 +1,7 @@
 // Keeps the app shell available offline. Train data is never cached.
-const CACHE = 'traim-v2';
+// tools/build.mjs fills in BUILD and the hashed SHELL names for each release.
+const BUILD = 'dev';
+const CACHE = `traim-${BUILD}`;
 const SHELL = [
   './',
   'index.html',
@@ -36,17 +38,21 @@ self.addEventListener('activate', (event) => {
 
 // Network first, so a new version shows up right away; the cache is only the offline fallback.
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/vt/')) return;
+  const { request } = event;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/vt/')) return;
+  if (url.pathname.endsWith('/version.json')) return;
+  // Pages keep their URL across releases: revalidate them instead of trusting the HTTP cache.
+  const fresh = request.mode === 'navigate' ? fetch(request, { cache: 'no-cache' }) : fetch(request);
   event.respondWith(
-    fetch(event.request)
+    fresh
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
         return res;
       })
-      .catch(() => caches.match(event.request, { ignoreSearch: true }).then((hit) => hit ?? caches.match('index.html'))),
+      .catch(() => caches.match(request, { ignoreSearch: true }).then((hit) => hit ?? caches.match('index.html'))),
   );
 });

@@ -36,6 +36,43 @@ export async function install() {
   return outcome === 'accepted';
 }
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+const registration =
+  'serviceWorker' in navigator ? navigator.serviceWorker.register('sw.js').catch(() => null) : Promise.resolve(null);
+
+/* ---------- New release: reload open pages ---------- */
+
+const BUILD = document.querySelector('meta[name="traim-build"]')?.content ?? 'dev';
+const RELOADED_KEY = 'traim.reloadedFor';
+const CHECK_EVERY = 5 * 60_000;
+
+async function checkForRelease() {
+  let latest;
+  try {
+    const res = await fetch('version.json', { cache: 'no-store' });
+    ({ build: latest } = await res.json());
+  } catch {
+    return;
+  }
+  if (!latest || latest === BUILD) return;
+  // Don't throw away what the user is typing; the next check will try again.
+  if (document.activeElement?.matches('input, textarea')) return;
+  // If the page still comes back old (stale HTTP cache), reload only once per release.
+  try {
+    if (sessionStorage.getItem(RELOADED_KEY) === latest) return;
+    sessionStorage.setItem(RELOADED_KEY, latest);
+  } catch {
+    // Without sessionStorage there is no loop guard: skip the reload rather than risk one.
+    return;
+  }
+  (await registration)?.update().catch(() => {});
+  location.reload();
+}
+
+// Local development serves the source files, which have no build id.
+if (BUILD !== 'dev') {
+  setTimeout(checkForRelease, 3000);
+  setInterval(checkForRelease, CHECK_EVERY);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkForRelease();
+  });
 }
