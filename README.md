@@ -30,11 +30,12 @@ poi apri http://localhost:8080.
 - **App**: ogni push su `main` la pubblica su GitHub Pages (https://lecce.dev/traim/, dominio personalizzato
   dell'account: `flecce.github.io/traim/` fa redirect lì) con
   `.github/workflows/pages.yml`. In GitHub: Settings → Pages → Source: **GitHub Actions**.
-- **Proxy ViaggiaTreno**: Cloudflare Worker in `cloudflare/` (https://traim-proxy.lecce-fabiano.workers.dev).
-  `.github/workflows/worker.yml` lo ripubblica quando cambia `cloudflare/`; servono i secret
-  `CLOUDFLARE_API_TOKEN` (token con permesso "Edit Cloudflare Workers") e `CLOUDFLARE_ACCOUNT_ID`.
-  A mano: `cd cloudflare && npx wrangler deploy`.
-- `js/config.js` usa il proxy locale su `localhost` e il Worker altrove.
+- **Proxy ViaggiaTreno**: Deno Deploy, codice in `deno/` (https://traim-proxy.deno.dev). Risponde con i
+  CORS per le origini dell'app e tiene in cache per 30 secondi le risposte riuscite (`X-Cache: HIT/MISS`).
+  `.github/workflows/deno.yml` lo ripubblica quando cambia `deno/`. Una tantum, su https://dash.deno.com:
+  crea il progetto `traim-proxy` e collegalo a questo repository in modalità **GitHub Actions**
+  (l'accesso passa da OIDC, non servono secret).
+- `js/config.js` usa il proxy locale su `localhost` e Deno Deploy altrove.
 - Google login: aggiungi `https://lecce.dev` alle "Origini JavaScript autorizzate" del client OAuth.
 
 ## Dati salvati
@@ -73,7 +74,8 @@ Quando accedi:
 | `js/icons.js` | Icone SVG dell'interfaccia |
 | `js/pwa.js`, `sw.js`, `manifest.webmanifest` | Installazione come app e funzionamento offline dell'interfaccia |
 | `tools/make-icons.mjs` | Rigenera `icons/*.png` |
-| `dev-server.mjs` | Server statico + proxy ViaggiaTreno |
+| `dev-server.mjs` | Server statico + proxy ViaggiaTreno in locale |
+| `deno/` | Proxy ViaggiaTreno pubblicato su Deno Deploy |
 
 ## Limiti noti
 
@@ -82,6 +84,7 @@ Quando accedi:
 - ViaggiaTreno non elenca più i treni appena partiti: per quelli in viaggio in Alto Adige il dato arriva da STA.
 - La posizione dei treni STA è stimata dagli orari in tempo reale, non da un rilevamento.
 - Solo treni diretti (niente cambi).
-- ViaggiaTreno (Akamai) rifiuta le richieste che arrivano dalla rete Cloudflare: il Worker riceve 403,
-  quindi la versione pubblicata mostra solo i treni STA. In locale, con `dev-server.mjs`, ViaggiaTreno funziona.
+- ViaggiaTreno (Akamai) può rifiutare le richieste che arrivano da reti cloud: dalla rete Cloudflare
+  rispondeva 403. Se succede anche con Deno Deploy, la versione pubblicata mostra solo i treni STA.
+  In locale, con `dev-server.mjs`, ViaggiaTreno funziona.
 - Il login Google non sopravvive al ricaricamento della pagina: va ripetuto, i dati restano comunque in locale.

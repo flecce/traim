@@ -1,0 +1,24 @@
+name: Deploy proxy to Deno Deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ['deno/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Deno Deploy authenticates the workflow through GitHub OIDC: no token secret needed,
+  # but the "traim-proxy" project must exist and be linked to this repository (see README).
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/deployctl@v1
+        with:
+          project: traim-proxy
+          entrypoint: main.js
+          root: deno
