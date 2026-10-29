@@ -8,8 +8,36 @@ const ALLOWED_ORIGINS = ['https://lecce.dev', 'https://flecce.github.io', 'http:
 
 const CACHE_SECONDS = 30;
 const CACHE_MAX_ENTRIES = 500;
+// Deno Deploy spreads requests over many isolates, so per-isolate memory rarely hits:
+// the Cache API is shared between them. Memory stays as fallback where it is missing (Node, tests).
+const sharedCache = globalThis.caches?.open('vt-v1').catch(() => null) ?? Promise.resolve(null);
 // path+query -> { body, contentType, expires }. Only successful answers are kept.
 const cache = new Map();
+const cacheUrl = (key) => `https://cache.traim/${key}`;
+
+async function lookup(key) {
+  const store = await sharedCache;
+  if (store) {
+    const res = await store.match(cacheUrl(key)).catch(() => null);
+    const expires = Number(res?.headers.get('X-Expires'));
+    if (res && expires > Date.now()) {
+      return { body: await res.arrayBuffer(), contentType: res.headers.get('Content-Type'), expires };
+    }
+  }
+  const hit = cache.get(key);
+  return hit && hit.expires > Date.now() ? hit : null;
+}
+
+async function store(key, entry) {
+  remember(key, entry);
+  const shared = await sharedCache;
+  await shared
+    ?.put(
+      cacheUrl(key),
+      new Response(entry.body, { headers: { 'Content-Type': entry.contentType, 'X-Expires': String(entry.expires) } }),
+    )
+    .catch(() => {});
+}
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin');
@@ -52,8 +80,8 @@ export async function handle(request) {
   if (!ENDPOINTS.has(rest.split('/')[0])) return new Response('Unknown endpoint', { status: 404, headers: cors });
 
   const key = `${rest}${url.search}`;
-  const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return reply(hit, 200, cors, 'HIT');
+  const hit = await lookup(key);
+  if (hit) return reply(hit, 200, cors, 'HIT');
 
   try {
     const upstream = await fetch(`${API}/${key}`, {
@@ -64,7 +92,7 @@ export async function handle(request) {
       contentType: upstream.headers.get('content-type') ?? 'text/plain',
       expires: Date.now() + CACHE_SECONDS * 1000,
     };
-    if (upstream.ok) remember(key, entry);
+    if (upstream.ok) await store(key, entry);
     return reply(entry, upstream.status, cors, 'MISS');
   } catch {
     return new Response('ViaggiaTreno non raggiungibile', { status: 502, headers: cors });
