@@ -30,11 +30,10 @@ poi apri http://localhost:8080.
 - **App**: ogni push su `main` la pubblica su GitHub Pages (https://lecce.dev/traim/, dominio personalizzato
   dell'account: `flecce.github.io/traim/` fa redirect lì) con
   `.github/workflows/pages.yml`. In GitHub: Settings → Pages → Source: **GitHub Actions**.
-- **Proxy ViaggiaTreno**: Deno Deploy, codice in `deno/` (https://traim-proxy.deno.dev). Risponde con i
+- **Proxy ViaggiaTreno**: Deno Deploy, codice in `deno/` (https://traim-proxy.flecce.deno.net). Risponde con i
   CORS per le origini dell'app e tiene in cache per 30 secondi le risposte riuscite (`X-Cache: HIT/MISS`).
-  `.github/workflows/deno.yml` lo ripubblica quando cambia `deno/`. Una tantum, su https://dash.deno.com:
-  crea il progetto `traim-proxy` e collegalo a questo repository in modalità **GitHub Actions**
-  (l'accesso passa da OIDC, non servono secret).
+  L'app `traim-proxy` su https://console.deno.com è collegata a questo repository e si ripubblica a ogni push;
+  l'entrypoint (`deno/main.js`) è definito in `deno.json`, quindi il pannello non va configurato.
 - `js/config.js` usa il proxy locale su `localhost` e Deno Deploy altrove.
 - Google login: aggiungi `https://lecce.dev` alle "Origini JavaScript autorizzate" del client OAuth.
 

@@ -6,7 +6,7 @@ export const config = {
   // dev-server.mjs when running locally, the Deno Deploy proxy (deno/) when published.
   vtBase: ['localhost', '127.0.0.1'].includes(location.hostname)
     ? '/vt'
-    : 'https://traim-proxy.deno.dev/vt',
+    : 'https://traim-proxy.flecce.deno.net/vt',
 
   // STA (South Tyrol) journey planner, an EFA backend that allows cross-origin calls.
   staBase: 'https://efa.sta.bz.it/apb',
