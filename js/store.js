@@ -44,7 +44,7 @@ const fromRow = ([id, name, fromName, fromVt, fromSta, toName, toVt, toSta]) => 
 // Saves locally and, when signed in, to Drive. Throws only if the Drive write fails.
 async function persist() {
   writeLocal(ROUTES_KEY, routes);
-  if (!google.isConnected()) return;
+  if (!google.isSignedIn()) return;
   await google.writeRows(google.TABS.routes, HEADER, routes.map(toRow));
   writeLocal(SYNCED_KEY, routes.map((r) => r.id));
 }

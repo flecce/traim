@@ -31,7 +31,7 @@ export async function updateSettings(patch) {
   current = { ...current, ...patch, updatedAt: Date.now() };
   writeLocal(KEY, current);
   applySettings();
-  if (google.isConnected()) await google.writeRows(google.TABS.settings, HEADER, toRows(current));
+  if (google.isSignedIn()) await google.writeRows(google.TABS.settings, HEADER, toRows(current));
 }
 
 // On sign-in the newer copy wins; settings that only exist on this device are uploaded.

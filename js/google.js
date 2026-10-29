@@ -2,20 +2,41 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 
 // drive.file only grants access to files this app created, so the spreadsheet stays isolated.
-const SCOPES = 'openid email https://www.googleapis.com/auth/drive.file';
+const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive.file';
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
 export const TABS = { routes: 'Routes', settings: 'Settings' };
+// The session outlives page reloads: the user stays signed in until they sign out.
+// The access token itself expires after an hour and is renewed on the next user action.
+const SESSION_KEY = 'traim.google';
 
 let tokenClient = null;
 let pending = null;
-let token = null;
-let expiresAt = 0;
-let spreadsheetId = null;
+let { token = null, expiresAt = 0, user = null, spreadsheetId = null } = loadSession();
 // Writes are serialized: each one clears and rewrites a whole tab.
 let writeQueue = Promise.resolve();
 
+function loadSession() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSession() {
+  try {
+    if (user) localStorage.setItem(SESSION_KEY, JSON.stringify({ token, expiresAt, user, spreadsheetId }));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Storage unavailable: the session just lasts until the page is closed.
+  }
+}
+
 export const isConfigured = () => Boolean(config.googleClientId);
 export const isConnected = () => Boolean(token) && Date.now() < expiresAt;
+// Signed in = we know who the user is, even while the access token needs renewing.
+export const isSignedIn = () => Boolean(user);
+export const getUser = () => user;
 export const spreadsheetUrl = () => spreadsheetId && `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
 
 function settle(fn, value) {
@@ -35,6 +56,7 @@ export function signIn() {
       if (resp.error) return settle('reject', new Error(resp.error_description || resp.error));
       token = resp.access_token;
       expiresAt = Date.now() + (Number(resp.expires_in) - 60) * 1000;
+      saveSession();
       settle('resolve');
     },
     error_callback: (err) => {
@@ -44,33 +66,62 @@ export function signIn() {
 
   return new Promise((resolve, reject) => {
     pending = { resolve, reject };
-    tokenClient.requestAccessToken({ prompt: '' });
+    // With the account already known and consent given, Google closes its window by itself.
+    tokenClient.requestAccessToken({ prompt: '', login_hint: user?.email });
   });
+}
+
+// Full sign-in: token plus the profile shown in the app (name, photo, email).
+export async function signInWithProfile() {
+  await signIn();
+  const profile = await gfetch('https://www.googleapis.com/oauth2/v3/userinfo');
+  user = { name: profile.name || profile.email, email: profile.email, picture: profile.picture ?? null };
+  saveSession();
+  return user;
 }
 
 export function signOut() {
   if (token) window.google?.accounts?.oauth2?.revoke(token, () => {});
   token = null;
   expiresAt = 0;
+  user = null;
   spreadsheetId = null;
+  saveSession();
+}
+
+// Gets a valid token, renewing an expired one. Browsers only let Google's window open
+// shortly after a click or tap, so this works from user actions, not from timers.
+async function ensureToken() {
+  if (isConnected()) return;
+  if (!user) throw new AppError('error.googleExpired');
+  await signIn().catch(() => {
+    throw new AppError('error.googleExpired');
+  });
 }
 
 async function gfetch(url, options = {}) {
-  if (!isConnected()) throw new AppError('error.googleExpired');
+  await ensureToken();
   const res = await fetch(url, {
     ...options,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
   if (res.status === 401) {
     token = null;
+    saveSession();
     throw new AppError('error.googleExpired');
   }
   if (!res.ok) throw new AppError('error.googleStatus', { status: res.status });
   return res.status === 204 ? null : res.json();
 }
 
-export function getUser() {
-  return gfetch('https://www.googleapis.com/oauth2/v3/userinfo');
+// Renews the token if needed; resolves to false when that needs a click from the user.
+export async function reconnect() {
+  try {
+    await ensureToken();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const range = (r) => encodeURIComponent(r);
@@ -105,6 +156,7 @@ async function spreadsheet() {
     });
     spreadsheetId = created.spreadsheetId;
   }
+  saveSession();
   return spreadsheetId;
 }
 
