@@ -337,6 +337,9 @@ a { color: var(--accent); }
 
 .rc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .rc-name { font-weight: 600; }
+.rc-arr { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rc-arr s { color: var(--muted); }
+.is-soonest .rc-arr s { color: var(--soon-muted); }
 .rc-count { background: var(--surface-2); color: var(--muted); }
 .rc-count[hidden] { display: none; }
 .is-soonest .rc-count { background: var(--surface); color: var(--accent-strong); }

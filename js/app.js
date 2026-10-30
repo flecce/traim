@@ -259,7 +259,7 @@ function routeCard(r) {
     <li>
       <a class="route-card" href="#/route/${id}" id="card-${id}">
         <span class="rc-top">
-          <span class="rc-name">${esc(r.name)}</span>
+          <span class="rc-name">${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
           <span class="pill rc-count" id="count-${id}" hidden></span>
         </span>
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
@@ -307,6 +307,10 @@ async function loadNext(route, ticket, departures) {
       <span class="big-time">${hhmm(next.depPlanned)}</span>
       ${delayBadge(next)}
       ${next.platform ? `<span class="rc-platform">${platformText(next)}</span>` : ''}`;
+    // Arrival of that train: the timetable one, struck through when the real one differs.
+    el('arr').innerHTML = shift(next.arrPlanned, next.arrExpected)
+      ? `<s>${hhmm(next.arrPlanned)}</s> ${hhmm(next.arrExpected)}`
+      : hhmm(next.arrPlanned);
     el('actual').innerHTML = actualLine(
       next,
       'time.atStation',
