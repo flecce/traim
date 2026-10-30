@@ -362,7 +362,7 @@ a { color: var(--accent); }
 .hero .actual { margin-top: 2px; }
 .hero .actual.late { color: #fac775; }
 .hero .actual.early { color: #c0dd97; }
-.row-info .actual { font-size: .8rem; }
+.train-row .actual { font-size: .85rem; }
 
 .rc-live { display: grid; gap: 4px; margin-top: 8px; }
 
@@ -605,26 +605,28 @@ a { color: var(--accent); }
 .train-row + .train-row { border-top: 1px solid var(--border); }
 
 .train-row summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  display: grid;
+  gap: 4px;
+  padding: 14px 12px 14px 16px;
   list-style: none;
   cursor: pointer;
 }
 
+/* Times and destination on top, countdown and delay below, the real time last. */
+.row-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
 .row-time {
-  width: 3.4em;
+  flex: none;
   font-size: 1.25rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 
-.row-time s { display: block; font-size: .75rem; font-weight: 400; color: var(--muted); }
-.row-info { flex: 1; min-width: 0; display: grid; }
-.row-title { font-weight: 500; font-size: .95rem; }
-.row-sub { color: var(--muted); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.train-row summary .badge { flex: none; }
+.row-title { flex: 1; min-width: 0; font-weight: 500; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { flex: 1; min-width: 0; color: var(--muted); font-size: .85rem; }
+.nowrap { white-space: nowrap; }
 .row-chevron { color: var(--muted); }
 .row-chevron .icon { width: 18px; height: 18px; transition: transform .2s; }
 .train-row[open] .row-chevron .icon { transform: rotate(180deg); }

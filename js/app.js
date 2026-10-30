@@ -68,18 +68,23 @@ function countdown(trip) {
   return minutes <= 0 ? t('count.departing') : t('count.departsIn', { d: duration(minutes) });
 }
 
-function delayBadge(trip) {
+// compact: "-2 min" instead of "2 min early", for narrow rows.
+function delayBadge(trip, compact = false) {
   if (trip.status === 'cancelled') return `<span class="badge bad">${t('badge.cancelled')}</span>`;
   if (trip.delay == null || (trip.notStarted && !trip.lastStation)) {
     return `<span class="badge muted">${t('badge.scheduled')}</span>`;
   }
-  if (trip.delay < 0) return `<span class="badge ok">${t('badge.early', { n: -trip.delay })}</span>`;
+  if (trip.delay < 0) {
+    return `<span class="badge ok">${compact ? `${trip.delay} min` : t('badge.early', { n: -trip.delay })}</span>`;
+  }
   if (trip.delay === 0) return `<span class="badge ok">${t('badge.onTime')}</span>`;
   return `<span class="badge ${trip.delay >= 10 ? 'bad' : 'warn'}">+${trip.delay} min</span>`;
 }
 
 // Minutes between the timetable and the real-time estimate: 0 when on time or unknown.
-const shift = (planned, expected) => (planned && expected ? Math.round((expected - planned) / 60_000) : 0);
+// Compared minute by minute, as the clock shows them, so the two times never read the same.
+const shift = (planned, expected) =>
+  planned && expected ? Math.floor(expected / 60_000) - Math.floor(planned / 60_000) : 0;
 
 // Big times follow the timetable; this line adds the real one when the train is late or early.
 function actualLine(trip, key, vars, minutes) {
@@ -521,25 +526,31 @@ function hero(trip, from, to) {
 }
 
 function row(trip, from, to) {
-  const sub = [countdown(trip), esc(trip.number)].filter(Boolean).join(' · ');
+  // Each part wraps as a whole, never inside a train number or a duration.
+  const sub = [countdown(trip), esc(trip.number)].filter(Boolean).map((s) => `<span class="nowrap">${s}</span>`).join(' · ');
+  // Only the times that differ from the timetable, so the row stays short.
   const depShift = shift(trip.depPlanned, trip.depExpected);
-  const actual = actualLine(
-    trip,
-    'time.both',
-    { dep: hhmm(trip.depExpected ?? trip.depPlanned), arr: hhmm(trip.arrExpected ?? trip.arrPlanned) },
-    depShift || shift(trip.arrPlanned, trip.arrExpected),
-  );
+  const arrShift = shift(trip.arrPlanned, trip.arrExpected);
+  const [key, vars] =
+    depShift && arrShift
+      ? ['time.both', { dep: hhmm(trip.depExpected), arr: hhmm(trip.arrExpected) }]
+      : depShift
+        ? ['time.departs', { time: hhmm(trip.depExpected) }]
+        : ['time.arrives', { time: hhmm(trip.arrExpected) }];
+  const actual = actualLine(trip, key, vars, depShift || arrShift);
   return `
     <details class="train-row ${trip.status === 'cancelled' ? 'cancelled' : ''}" data-key="${esc(trip.key)}">
       <summary>
-        <span class="row-time">${hhmm(trip.depPlanned)}</span>
-        <span class="row-info">
+        <span class="row-line">
+          <span class="row-time">${hhmm(trip.depPlanned)}</span>
           <span class="row-title">→ ${esc(to.name)} ${hhmm(trip.arrPlanned)}</span>
-          <span class="row-sub">${sub}</span>
-          ${actual}
+          <span class="row-chevron">${icons.chevron}</span>
         </span>
-        ${delayBadge(trip)}
-        <span class="row-chevron">${icons.chevron}</span>
+        <span class="row-line">
+          <span class="row-sub">${sub}</span>
+          ${delayBadge(trip, true)}
+        </span>
+        ${actual}
       </summary>
       <div class="row-body">
         ${track(trip)}
