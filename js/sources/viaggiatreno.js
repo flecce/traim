@@ -92,6 +92,26 @@ function toTrip(s, fromCode, toCode, now) {
     };
   });
 
+  // The whole line, for the stop list: stops outside the trip are marked and only shown dimmed.
+  const outside = (f, k) => {
+    const arrP = k > 0 ? (f.arrivo_teorico ?? f.programmata) : null;
+    const depP = k < all.length - 1 ? (f.partenza_teorica ?? f.programmata) : null;
+    return {
+      name: titleCase(f.stazione),
+      planned: arrP ?? depP,
+      arr: f.arrivoReale ?? (arrP && arrP + late),
+      dep: f.partenzaReale ?? (depP && depP + late),
+      passed: Boolean(f.partenzaReale),
+      here: Boolean(f.arrivoReale && !f.partenzaReale),
+      outside: true,
+    };
+  };
+  const route = [
+    ...all.slice(0, i).map(outside),
+    ...stops,
+    ...all.slice(j + 1).map((f, k) => outside(f, j + 1 + k)),
+  ];
+
   const cancelled = s.provvedimento === 1 || a.actualFermataType === 3 || b.actualFermataType === 3;
   const platformReal = a.binarioEffettivoPartenzaDescrizione?.trim();
   const platformPlanned = a.binarioProgrammatoPartenzaDescrizione?.trim();
@@ -114,6 +134,7 @@ function toTrip(s, fromCode, toCode, now) {
     platform: platformReal || platformPlanned || null,
     platformChanged: Boolean(platformReal && platformPlanned && platformReal !== platformPlanned),
     stops,
+    route,
     lastStation: station(s.stazioneUltimoRilevamento),
     lastSeen: s.oraUltimoRilevamento || null,
     notStarted: Boolean(s.nonPartito),

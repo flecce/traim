@@ -43,6 +43,29 @@ export async function resolveStation(station) {
   return { ...station, vt: vtId, sta: staId };
 }
 
+// The rest of the line fetched for STA trips, by trip key: ViaggiaTreno trips carry theirs already.
+const routes = new Map();
+
+// The trip's stops with the rest of the line around them, if already known.
+// Cached parts are joined to the trip's current stops, so their progress stays fresh.
+export function knownRoute(trip) {
+  if (trip.route) return trip.route;
+  const around = routes.get(trip.key);
+  return around ? [...around.before, ...trip.stops, ...around.after] : null;
+}
+
+// Asked only when the stop list is opened: it costs STA one more request per train.
+export async function loadRoute(trip) {
+  if (knownRoute(trip) || trip.source !== 'sta') return knownRoute(trip);
+  try {
+    const around = await sta.fullRoute(trip);
+    if (around) routes.set(trip.key, around);
+    return knownRoute(trip);
+  } catch {
+    return null;
+  }
+}
+
 // ViaggiaTreno wins for trains present in both: it reports where the train was actually detected.
 // Trains already on their way are always kept, on top of `max` upcoming departures.
 function merge(results, max) {

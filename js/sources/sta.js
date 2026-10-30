@@ -49,28 +49,32 @@ export async function searchStations(text) {
     .map((l) => ({ name: cleanName(l.name), sta: l.id }));
 }
 
+// Stops the train passes without stopping come with no times.
+const timedStops = (leg) => (leg.stopSequence ?? []).filter((s) => s.departureTimePlanned || s.arrivalTimePlanned);
+
+function toStop(s, k, last, now) {
+  const arrP = time(s.arrivalTimePlanned);
+  const depP = time(s.departureTimePlanned);
+  const arr = time(s.arrivalTimeEstimated) ?? arrP;
+  const dep = time(s.departureTimeEstimated) ?? depP;
+  return {
+    name: cleanName(s.name),
+    planned: k === 0 ? depP : (arrP ?? depP),
+    expected: k === 0 ? dep : (arr ?? dep),
+    arr,
+    dep,
+    passed: k < last ? dep != null && dep <= now : arr != null && arr <= now,
+    here: k > 0 && k < last && arr != null && dep != null && arr <= now && now < dep,
+  };
+}
+
 function toTrip(leg, now) {
   const tr = leg.transportation ?? {};
-  // Stops the train passes without stopping come with no times.
-  const seq = (leg.stopSequence ?? []).filter((s) => s.departureTimePlanned || s.arrivalTimePlanned);
+  const seq = timedStops(leg);
   if (seq.length < 2) return null;
 
   const last = seq.length - 1;
-  const stops = seq.map((s, k) => {
-    const arrP = time(s.arrivalTimePlanned);
-    const depP = time(s.departureTimePlanned);
-    const arr = time(s.arrivalTimeEstimated) ?? arrP;
-    const dep = time(s.departureTimeEstimated) ?? depP;
-    return {
-      name: cleanName(s.name),
-      planned: k === 0 ? depP : (arrP ?? depP),
-      expected: k === 0 ? dep : (arr ?? dep),
-      arr,
-      dep,
-      passed: k < last ? dep != null && dep <= now : arr != null && arr <= now,
-      here: k > 0 && k < last && arr != null && dep != null && arr <= now && now < dep,
-    };
-  });
+  const stops = seq.map((s, k) => toStop(s, k, last, now));
 
   const a = stops[0];
   const b = stops[last];
@@ -103,11 +107,38 @@ function toTrip(leg, now) {
     platform: platform && platform.length <= 4 ? platform : null,
     platformChanged: false,
     stops: stops.map(({ expected, ...s }) => s),
+    // What fullRoute() needs to ask for the stops outside this trip.
+    routeQuery: tr.id && props.tripCode != null && {
+      line: tr.id,
+      stop: leg.origin?.parent?.id ?? leg.origin?.id,
+      tripCode: String(props.tripCode),
+      ...romeDateTime(a.planned),
+    },
     lastStation: null,
     lastSeen: null,
     notStarted: false,
     note: null,
   };
+}
+
+// The rest of the line before and after the trip, its stops marked `outside`.
+export async function fullRoute(trip) {
+  const q = trip.routeQuery;
+  if (!q) return null;
+  const data = await get(
+    'XML_STOPSEQCOORD_REQUEST',
+    new URLSearchParams({ line: q.line, stop: q.stop, tripCode: q.tripCode, date: q.date, time: q.time, tStOTType: 'all', useRealtime: '1' }),
+  );
+  const seq = timedStops(data.leg ?? {});
+  const now = Date.now();
+  const all = seq.map((s, k) => toStop(s, k, seq.length - 1, now));
+  const first = trip.stops[0];
+  const last = trip.stops[trip.stops.length - 1];
+  const i = all.findIndex((s) => s.name === first.name);
+  const j = all.findIndex((s, k) => k > i && s.name === last.name);
+  if (i < 0 || j < 0) return null;
+  const outside = ({ expected, ...s }) => ({ ...s, outside: true });
+  return { before: all.slice(0, i).map(outside), after: all.slice(j + 1).map(outside) };
 }
 
 export async function findTrips(from, to, now, max) {

@@ -663,6 +663,8 @@ a { color: var(--accent); }
 .stop-list li.passed { color: var(--muted); }
 .stop-list li.passed::before, .stop-list li.here::before { background: var(--accent); border-color: var(--accent); }
 .stop-list li.here { font-weight: 700; }
+/* Stops on the train's line but outside your trip. */
+.stop-list li.outside { opacity: .45; font-weight: 400; }
 .stop-time { font-variant-numeric: tabular-nums; }
 .stop-time s { opacity: .7; margin-right: 4px; }
 

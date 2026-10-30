@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { LANGUAGES, locale, t } from './i18n.js';
 import { icons } from './icons.js';
-import { findTrains, resolveStation, searchStations } from './trains.js';
+import { findTrains, knownRoute, loadRoute, resolveStation, searchStations } from './trains.js';
 import * as google from './google.js';
 import * as store from './store.js';
 import * as settings from './settings.js';
@@ -478,11 +478,12 @@ function position(trip, from) {
   return sub ? `${text}<span class="sub">${sub}</span>` : text;
 }
 
+// The whole line when known, with the stops outside the trip dimmed.
 function stopList(trip) {
-  return `<ol class="stop-list">${trip.stops
+  return `<ol class="stop-list">${(knownRoute(trip) ?? trip.stops)
     .map(
       (s) => `
-      <li class="${s.passed ? 'passed' : ''} ${s.here ? 'here' : ''}">
+      <li class="${s.passed ? 'passed' : ''} ${s.here ? 'here' : ''} ${s.outside ? 'outside' : ''}">
         <span class="stop-time">${time(s.planned, s.arr ?? s.dep)}</span>
         <span class="stop-name">${esc(s.name)}</span>
       </li>`,
@@ -592,9 +593,24 @@ function renderRoute(id, reversed) {
   const updated = view.querySelector('#updated');
   const refreshBtn = view.querySelector('#refresh');
   let stations = null;
+  let shown = new Map();
+
+  // Opening a stop list fetches the rest of the line when the source did not send it.
+  list.addEventListener(
+    'toggle',
+    async (event) => {
+      const details = event.target;
+      const trip = shown.get(details.dataset?.key);
+      if (!details.open || !trip || knownRoute(trip)) return;
+      if (!(await loadRoute(trip)) || !details.isConnected) return;
+      details.querySelector('.stop-list').outerHTML = stopList(trip);
+    },
+    true,
+  );
 
   const show = (trips, from, to) => {
     if (ticket !== renderTicket) return;
+    shown = new Map(trips.map((x) => [x.key, x]));
     // Keep expanded trains expanded across refreshes.
     const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.key));
     // The next departure is featured, as on the home card; trains already on their way get their own list.
