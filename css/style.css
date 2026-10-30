@@ -353,7 +353,16 @@ a { color: var(--accent); }
 }
 
 .rc-platform { margin-left: auto; }
-.rc-then:empty, .rc-live:empty { display: none; }
+.rc-then:empty, .rc-live:empty, .rc-actual:empty { display: none; }
+
+/* Real departure or arrival time, shown under the timetable one when a train is late or early. */
+.actual { display: block; font-size: .85rem; font-weight: 500; }
+.actual.late { color: var(--warn); }
+.actual.early { color: var(--ok); }
+.hero .actual { margin-top: 2px; }
+.hero .actual.late { color: #fac775; }
+.hero .actual.early { color: #c0dd97; }
+.row-info .actual { font-size: .8rem; }
 
 .rc-live { display: grid; gap: 4px; margin-top: 8px; }
 
@@ -379,7 +388,6 @@ a { color: var(--accent); }
 
 @keyframes blink { 50% { opacity: .25; } }
 
-.heroes { display: grid; gap: 12px; }
 
 .big-time {
   font-size: 2.1rem;

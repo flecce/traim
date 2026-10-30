@@ -48,6 +48,10 @@ const dict = {
 
     'train.onTheWay': 'In viaggio',
     'train.next': 'Prossimo',
+    'time.atStation': 'In stazione alle {time}',
+    'time.departs': 'Parte alle {time}',
+    'time.departed': 'Partito alle {time}',
+    'time.both': 'Parte {dep} · arriva {arr}',
     'train.later': 'Successivo',
     'train.to': 'per {station}',
     'train.platform': 'Bin. {platform}',
@@ -159,6 +163,10 @@ const dict = {
 
     'train.onTheWay': 'On the way',
     'train.next': 'Next',
+    'time.atStation': 'At the station at {time}',
+    'time.departs': 'Leaves at {time}',
+    'time.departed': 'Left at {time}',
+    'time.both': 'Leaves {dep} · arrives {arr}',
     'train.later': 'Later',
     'train.to': 'to {station}',
     'train.platform': 'Platform {platform}',
@@ -269,6 +277,10 @@ const dict = {
 
     'train.onTheWay': 'Unterwegs',
     'train.next': 'Nächster',
+    'time.atStation': 'Am Bahnhof um {time}',
+    'time.departs': 'Abfahrt um {time}',
+    'time.departed': 'Abgefahren um {time}',
+    'time.both': 'Ab {dep} · an {arr}',
     'train.later': 'Danach',
     'train.to': 'nach {station}',
     'train.platform': 'Gleis {platform}',

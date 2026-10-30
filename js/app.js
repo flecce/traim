@@ -78,6 +78,15 @@ function delayBadge(trip) {
   return `<span class="badge ${trip.delay >= 10 ? 'bad' : 'warn'}">+${trip.delay} min</span>`;
 }
 
+// Minutes between the timetable and the real-time estimate: 0 when on time or unknown.
+const shift = (planned, expected) => (planned && expected ? Math.round((expected - planned) / 60_000) : 0);
+
+// Big times follow the timetable; this line adds the real one when the train is late or early.
+function actualLine(trip, key, vars, minutes) {
+  if (!minutes || trip.status === 'cancelled') return '';
+  return `<span class="actual ${minutes > 0 ? 'late' : 'early'}">${t(key, vars)}</span>`;
+}
+
 function time(planned, expected) {
   if (!expected || expected - planned < 60_000) return hhmm(planned);
   return `<s>${hhmm(planned)}</s>${hhmm(expected)}`;
@@ -251,6 +260,7 @@ function routeCard(r) {
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
         <span class="rc-live" id="live-${id}"></span>
         <span class="rc-main" id="next-${id}"><span class="skeleton"></span></span>
+        <span class="rc-actual" id="actual-${id}"></span>
         <span class="rc-then" id="then-${id}"></span>
       </a>
     </li>`;
@@ -289,12 +299,18 @@ async function loadNext(route, ticket, departures) {
       return;
     }
     main.innerHTML = `
-      <span class="big-time">${hhmm(next.depExpected)}</span>
+      <span class="big-time">${hhmm(next.depPlanned)}</span>
       ${delayBadge(next)}
       ${next.platform ? `<span class="rc-platform">${platformText(next)}</span>` : ''}`;
+    el('actual').innerHTML = actualLine(
+      next,
+      'time.atStation',
+      { time: hhmm(next.depExpected) },
+      shift(next.depPlanned, next.depExpected),
+    );
     count.textContent = countdown(next);
     count.hidden = !count.textContent;
-    const later = upcoming.slice(1, 3).map((x) => hhmm(x.depExpected));
+    const later = upcoming.slice(1, 3).map((x) => hhmm(x.depPlanned));
     then.textContent = later.length ? t('home.then', { times: later.join(' · ') }) : '';
     departures.set(route.id, next.depExpected);
     highlightSoonest(departures);
@@ -476,9 +492,20 @@ function hero(trip, from, to) {
     <article class="hero ${trip.status === 'cancelled' ? 'cancelled' : ''}">
       <div class="hero-top"><span>${label} · ${esc(trip.number)}</span><span>${countdown(trip)}</span></div>
       <div class="hero-times">
-        <div><span class="time">${time(trip.depPlanned, trip.depExpected)}</span><span class="station">${esc(from.name)}</span></div>
+        <div>
+          <span class="time">${hhmm(trip.depPlanned)}</span><span class="station">${esc(from.name)}</span>
+          ${actualLine(
+            trip,
+            trip.status === 'travelling' ? 'time.departed' : 'time.departs',
+            { time: hhmm(trip.depExpected) },
+            shift(trip.depPlanned, trip.depExpected),
+          )}
+        </div>
         ${delayBadge(trip)}
-        <div class="right"><span class="time">${time(trip.arrPlanned, trip.arrExpected)}</span><span class="station">${esc(to.name)}</span></div>
+        <div class="right">
+          <span class="time">${hhmm(trip.arrPlanned)}</span><span class="station">${esc(to.name)}</span>
+          ${actualLine(trip, 'time.atStation', { time: hhmm(trip.arrExpected) }, shift(trip.arrPlanned, trip.arrExpected))}
+        </div>
       </div>
       ${track(trip)}
       <p class="where">${position(trip, from)}</p>
@@ -495,13 +522,21 @@ function hero(trip, from, to) {
 
 function row(trip, from, to) {
   const sub = [countdown(trip), esc(trip.number)].filter(Boolean).join(' · ');
+  const depShift = shift(trip.depPlanned, trip.depExpected);
+  const actual = actualLine(
+    trip,
+    'time.both',
+    { dep: hhmm(trip.depExpected ?? trip.depPlanned), arr: hhmm(trip.arrExpected ?? trip.arrPlanned) },
+    depShift || shift(trip.arrPlanned, trip.arrExpected),
+  );
   return `
     <details class="train-row ${trip.status === 'cancelled' ? 'cancelled' : ''}" data-key="${esc(trip.key)}">
       <summary>
-        <span class="row-time">${time(trip.depPlanned, trip.depExpected)}</span>
+        <span class="row-time">${hhmm(trip.depPlanned)}</span>
         <span class="row-info">
-          <span class="row-title">→ ${esc(to.name)} ${hhmm(trip.arrExpected)}</span>
+          <span class="row-title">→ ${esc(to.name)} ${hhmm(trip.arrPlanned)}</span>
           <span class="row-sub">${sub}</span>
+          ${actual}
         </span>
         ${delayBadge(trip)}
         <span class="row-chevron">${icons.chevron}</span>
@@ -547,14 +582,17 @@ function renderRoute(id, reversed) {
     if (ticket !== renderTicket) return;
     // Keep expanded trains expanded across refreshes.
     const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.key));
-    // Trains already on their way are featured; with none, the next departure is.
+    // The next departure is featured, as on the home card; trains already on their way get their own list.
+    // With no departure left, the first train on its way is featured instead.
     const travelling = trips.filter((x) => x.status === 'travelling');
     const upcoming = trips.filter((x) => x.status !== 'travelling');
-    const featured = travelling.length ? travelling : upcoming.slice(0, 1);
-    const rest = travelling.length ? upcoming : upcoming.slice(1);
-    list.innerHTML = featured.length
-      ? `<div class="heroes">${featured.map((x) => hero(x, from, to)).join('')}</div>
-         ${rest.length ? `<h2 class="list-title">${t('route.upcoming')}</h2><div class="rows">${rest.map((x) => row(x, from, to)).join('')}</div>` : ''}`
+    const featured = upcoming[0] ?? travelling[0];
+    const section = (title, items) =>
+      items.length ? `<h2 class="list-title">${title}</h2><div class="rows">${items.map((x) => row(x, from, to)).join('')}</div>` : '';
+    list.innerHTML = featured
+      ? `${hero(featured, from, to)}
+         ${section(t('train.onTheWay'), travelling.filter((x) => x !== featured))}
+         ${section(t('route.upcoming'), upcoming.filter((x) => x !== featured))}`
       : `<p class="empty">${t('route.none')}</p>`;
     list.querySelectorAll('details').forEach((d) => (d.open = open.has(d.dataset.key)));
   };
