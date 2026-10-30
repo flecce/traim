@@ -457,6 +457,49 @@ a { color: var(--accent); }
 .suggestions small { color: var(--muted); font-size: .72rem; white-space: nowrap; }
 .suggestions button:hover, .suggestions button:focus { background: var(--surface-2); }
 .suggestions .hint { padding: 10px 12px; color: var(--muted); font-size: .9rem; }
+.suggestions button > span:not(.mode) { flex: 1; min-width: 0; }
+.suggestions button.off { opacity: .35; cursor: not-allowed; }
+
+/* Train or bus: blue-green train, amber bus, on station results and route cards. */
+.mode { display: inline-grid; place-items: center; flex: none; }
+.mode .icon { width: 18px; height: 18px; }
+.mode-train { color: var(--accent); }
+.mode-bus { color: #ba7517; }
+.rc-name .mode { vertical-align: -3px; margin-right: 6px; }
+.rc-name .mode .icon { width: 17px; height: 17px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: .88rem;
+  cursor: pointer;
+}
+.chip .icon { width: 16px; height: 16px; }
+.chip.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+
+/* Route page: a day and a time range instead of "now". */
+.when-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 12px; padding: 14px; }
+.when-form[hidden] { display: none; }
+.when-form label { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }
+.when-form .when-day { grid-column: 1 / -1; }
+.when-form input {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+}
 
 .form-error { color: var(--bad); margin: 0; min-height: 1.2em; font-size: .9rem; }
 

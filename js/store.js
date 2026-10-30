@@ -3,7 +3,7 @@ import * as google from './google.js';
 const ROUTES_KEY = 'traim.routes';
 // Ids known to be in the Drive sheet: if one disappears there, it was deleted on another device.
 const SYNCED_KEY = 'traim.syncedIds';
-const HEADER = ['id', 'name', 'from_name', 'from_vt', 'from_sta', 'to_name', 'to_vt', 'to_sta'];
+const HEADER = ['id', 'name', 'from_name', 'from_vt', 'from_sta', 'to_name', 'to_vt', 'to_sta', 'mode'];
 
 export function readLocal(key, fallback) {
   try {
@@ -21,8 +21,8 @@ export function writeLocal(key, value) {
   }
 }
 
-// Routes saved before multi-source support kept the ViaggiaTreno id in `code`.
-const station = (s) => ({ name: s.name, vt: s.vt ?? s.code ?? null, sta: s.sta ?? null });
+// Routes saved before multi-source support kept the ViaggiaTreno id in `code`; before buses, all were trains.
+const station = (s) => ({ name: s.name, vt: s.vt ?? s.code ?? null, sta: s.sta ?? null, mode: s.mode ?? 'train' });
 const normalize = (r) => ({ id: r.id, name: r.name, from: station(r.from), to: station(r.to) });
 
 let routes = readLocal(ROUTES_KEY, []).map(normalize);
@@ -32,13 +32,13 @@ export const getRoute = (id) => routes.find((r) => r.id === id);
 
 const newId = () => globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Date.now().toString(36);
 
-const toRow = (r) => [r.id, r.name, r.from.name, r.from.vt ?? '', r.from.sta ?? '', r.to.name, r.to.vt ?? '', r.to.sta ?? ''];
+const toRow = (r) => [r.id, r.name, r.from.name, r.from.vt ?? '', r.from.sta ?? '', r.to.name, r.to.vt ?? '', r.to.sta ?? '', r.from.mode];
 
-const fromRow = ([id, name, fromName, fromVt, fromSta, toName, toVt, toSta]) => ({
+const fromRow = ([id, name, fromName, fromVt, fromSta, toName, toVt, toSta, mode]) => ({
   id,
   name: name || `${fromName} → ${toName}`,
-  from: { name: fromName, vt: fromVt || null, sta: fromSta || null },
-  to: { name: toName, vt: toVt || null, sta: toSta || null },
+  from: { name: fromName, vt: fromVt || null, sta: fromSta || null, mode: mode || 'train' },
+  to: { name: toName, vt: toVt || null, sta: toSta || null, mode: mode || 'train' },
 });
 
 // Saves locally and, when signed in, to Drive. Throws only if the Drive write fails.
@@ -50,7 +50,7 @@ async function persist() {
 }
 
 export async function addRoute(route) {
-  routes = [...routes, { id: newId(), ...route }];
+  routes = [...routes, normalize({ id: newId(), ...route })];
   await persist();
 }
 

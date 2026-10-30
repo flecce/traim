@@ -4,6 +4,7 @@ import { icons } from './icons.js';
 import { findTrains, knownRoute, loadRoute, resolveStation, searchStations } from './trains.js';
 import * as google from './google.js';
 import * as store from './store.js';
+import { readLocal, writeLocal } from './store.js';
 import * as settings from './settings.js';
 import * as pwa from './pwa.js';
 
@@ -86,6 +87,9 @@ function delayBadge(trip, compact = false) {
 const shift = (planned, expected) =>
   planned && expected ? Math.floor(expected / 60_000) - Math.floor(planned / 60_000) : 0;
 
+// "At the station" for trains, "at the stop" for buses.
+const atStop = (trip) => (trip.mode === 'bus' ? 'time.atStop' : 'time.atStation');
+
 // Big times follow the timetable; this line adds the real one when the train is late or early.
 function actualLine(trip, key, vars, minutes) {
   if (!minutes || trip.status === 'cancelled') return '';
@@ -156,9 +160,10 @@ function renderHome() {
           : ''
       }
     </header>
+    ${filterChips(routes)}
     ${
       routes.length
-        ? `<ul class="routes">${routes.map(routeCard).join('')}</ul>`
+        ? `<ul class="routes">${shownRoutes(routes).map(routeCard).join('')}</ul>`
         : `<div class="empty-state">
              <img src="icons/icon-192.png" alt="" width="72" height="72">
              <p>${t('home.empty')}</p>
@@ -170,10 +175,37 @@ function renderHome() {
     reordering = true;
     render();
   });
+  view.querySelectorAll('[data-filter]').forEach((b) =>
+    b.addEventListener('click', () => {
+      writeLocal(FILTER_KEY, b.dataset.filter);
+      render();
+    }),
+  );
 
   const ticket = renderTicket;
   const departures = new Map();
-  routes.forEach((r) => loadNext(r, ticket, departures));
+  shownRoutes(routes).forEach((r) => loadNext(r, ticket, departures));
+}
+
+/* Train / bus filter, remembered on this device. Shown only when both kinds of route exist. */
+const FILTER_KEY = 'traim.homeFilter';
+const routeMode = (r) => (r.from.mode === 'bus' ? 'bus' : 'train');
+const homeFilter = (routes) => {
+  const kinds = new Set(routes.map(routeMode));
+  const f = readLocal(FILTER_KEY, 'all');
+  return kinds.size > 1 && kinds.has(f) ? f : 'all';
+};
+const shownRoutes = (routes) => {
+  const f = homeFilter(routes);
+  return f === 'all' ? routes : routes.filter((r) => routeMode(r) === f);
+};
+
+function filterChips(routes) {
+  if (new Set(routes.map(routeMode)).size < 2) return '';
+  const f = homeFilter(routes);
+  const chip = (value, label, icon = '') =>
+    `<button type="button" class="chip ${f === value ? 'on' : ''}" data-filter="${value}" aria-pressed="${f === value}">${icon}${label}</button>`;
+  return `<div class="chips">${chip('all', t('filter.all'))}${chip('train', t('filter.train'), icons.train)}${chip('bus', t('filter.bus'), icons.bus)}</div>`;
 }
 
 function renderReorder(routes) {
@@ -259,7 +291,7 @@ function routeCard(r) {
     <li>
       <a class="route-card" href="#/route/${id}" id="card-${id}">
         <span class="rc-top">
-          <span class="rc-name">${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
+          <span class="rc-name">${modeIcon(routeMode(r))}${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
           <span class="pill rc-count" id="count-${id}" hidden></span>
         </span>
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
@@ -300,20 +332,26 @@ async function loadNext(route, ticket, departures) {
       )
       .join('');
     if (!next) {
-      main.innerHTML = `<span class="muted">${t('home.noTrains')}</span>`;
+      main.innerHTML = `<span class="muted">${t(routeMode(route) === 'bus' ? 'home.noBuses' : 'home.noTrains')}</span>`;
       return;
     }
     main.innerHTML = `
       <span class="big-time">${hhmm(next.depPlanned)}</span>
       ${delayBadge(next)}
-      ${next.platform ? `<span class="rc-platform">${platformText(next)}</span>` : ''}`;
+      ${
+        next.mode === 'bus'
+          ? `<span class="rc-platform">${esc(next.number)}</span>`
+          : next.platform
+            ? `<span class="rc-platform">${platformText(next)}</span>`
+            : ''
+      }`;
     // Arrival of that train: the timetable one, struck through when the real one differs.
     el('arr').innerHTML = shift(next.arrPlanned, next.arrExpected)
       ? `<s>${hhmm(next.arrPlanned)}</s> ${hhmm(next.arrExpected)}`
       : hhmm(next.arrPlanned);
     el('actual').innerHTML = actualLine(
       next,
-      'time.atStation',
+      atStop(next),
       { time: hhmm(next.depExpected) },
       shift(next.depPlanned, next.depExpected),
     );
@@ -336,7 +374,12 @@ async function loadNext(route, ticket, departures) {
 
 /* ---------- New route ---------- */
 
-function stationPicker(input, list, onPick) {
+// Icon telling train stations from bus stops.
+const modeIcon = (mode) =>
+  `<span class="mode mode-${mode === 'bus' ? 'bus' : 'train'}" title="${t(mode === 'bus' ? 'mode.bus' : 'mode.train')}">${mode === 'bus' ? icons.bus : icons.train}</span>`;
+
+// wantedMode() returns the only kind of stop that can be picked, or null for any.
+function stationPicker(input, list, onPick, wantedMode = () => null) {
   let timer = null;
   let query = 0;
 
@@ -351,18 +394,25 @@ function stationPicker(input, list, onPick) {
     timer = setTimeout(async () => {
       const mine = ++query;
       try {
-        const found = (await searchStations(text)).slice(0, 10);
+        const found = (await searchStations(text)).slice(0, 12);
         if (mine !== query) return;
+        const wanted = wantedMode();
+        const only = wanted === 'bus' ? 'new.onlyBus' : 'new.onlyTrain';
+        // Stops of the other kind stay listed but dimmed, with a line saying why.
+        const blocked = wanted && found.some((s) => s.mode !== wanted);
         list.innerHTML = found.length
-          ? found
+          ? (blocked ? `<li class="hint">${t(only)}</li>` : '') +
+            found
               .map((s, i) => {
                 const sources = ['vt', 'sta'].filter((k) => s[k]).map((k) => SOURCE_NAMES[k]);
-                return `<li><button type="button" data-i="${i}"><span>${esc(s.name)}</span><small>${sources.join(' · ')}</small></button></li>`;
+                const off = wanted && s.mode !== wanted ? 'class="off" aria-disabled="true"' : '';
+                return `<li><button type="button" data-i="${i}" ${off}>${modeIcon(s.mode)}<span>${esc(s.name)}</span><small>${sources.join(' · ')}</small></button></li>`;
               })
               .join('')
           : `<li class="hint">${t('new.noResults')}</li>`;
         list.querySelectorAll('button').forEach((b) =>
           b.addEventListener('click', () => {
+            if (b.classList.contains('off')) return toast(t(only));
             const s = found[Number(b.dataset.i)];
             input.value = s.name;
             list.innerHTML = '';
@@ -375,6 +425,8 @@ function stationPicker(input, list, onPick) {
     }, 250);
   });
 
+  // Pressing a result must not blur the field first, or the list could close before the click lands.
+  list.addEventListener('pointerdown', (event) => event.preventDefault());
   input.addEventListener('blur', () => setTimeout(() => (list.innerHTML = ''), 200));
 }
 
@@ -402,14 +454,16 @@ function renderNew() {
 
   const picked = { from: null, to: null };
   const $ = (id) => view.querySelector(`#${id}`);
-  stationPicker($('from'), $('from-list'), (s) => (picked.from = s));
-  stationPicker($('to'), $('to-list'), (s) => (picked.to = s));
+  // Once one end is picked, the other must be the same kind: a route is all train or all bus.
+  stationPicker($('from'), $('from-list'), (s) => (picked.from = s), () => picked.to?.mode ?? null);
+  stationPicker($('to'), $('to-list'), (s) => (picked.to = s), () => picked.from?.mode ?? null);
 
   $('route-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const error = $('form-error');
     const { from, to } = picked;
     if (!from || !to) return (error.textContent = t('new.pickError'));
+    if (from.mode !== to.mode) return (error.textContent = t('new.modeError'));
     if ((from.vt && from.vt === to.vt) || (from.sta && from.sta === to.sta)) {
       return (error.textContent = t('new.sameError'));
     }
@@ -492,7 +546,12 @@ function stopList(trip) {
 }
 
 function trainFacts(trip) {
-  const parts = [esc(trip.number), trip.operator && esc(trip.operator), t('train.to', { station: esc(trip.destination) }), platformText(trip)];
+  const parts = [
+    esc(trip.number),
+    trip.operator && esc(trip.operator),
+    trip.change ? t('train.change', { station: esc(trip.change) }) : t('train.to', { station: esc(trip.destination) }),
+    platformText(trip),
+  ];
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -514,7 +573,7 @@ function hero(trip, from, to) {
         ${delayBadge(trip)}
         <div class="right">
           <span class="time">${hhmm(trip.arrPlanned)}</span><span class="station">${esc(to.name)}</span>
-          ${actualLine(trip, 'time.atStation', { time: hhmm(trip.arrExpected) }, shift(trip.arrPlanned, trip.arrExpected))}
+          ${actualLine(trip, atStop(trip), { time: hhmm(trip.arrExpected) }, shift(trip.arrPlanned, trip.arrExpected))}
         </div>
       </div>
       ${track(trip)}
@@ -584,6 +643,15 @@ function renderRoute(id, reversed) {
       `<a class="icon-btn" href="#/route/${esc(id)}${reversed ? '' : '/r'}" aria-label="${t('route.invert')}" title="${t('route.invert')}">${icons.swap}</a>
        <button class="icon-btn" type="button" id="refresh" aria-label="${t('route.refresh')}" title="${t('route.refresh')}">${icons.refresh}</button>`,
     )}
+    <div class="chips" id="when">
+      <button type="button" class="chip on" data-when="now">${t('when.now')}</button>
+      <button type="button" class="chip" data-when="pick">${icons.calendar}${t('when.pick')}</button>
+    </div>
+    <form class="when-form card" id="when-form" hidden>
+      <label class="when-day">${t('when.day')}<input type="date" id="when-day" required></label>
+      <label>${t('when.from')}<input type="time" id="when-from" required></label>
+      <label>${t('when.to')}<input type="time" id="when-to" required></label>
+    </form>
     <p class="meta" id="updated"></p>
     <div id="trains"><div class="hero placeholder"><span class="skeleton"></span></div></div>
     <button class="link-danger" type="button" id="delete">${t('route.delete')}</button>`;
@@ -594,6 +662,8 @@ function renderRoute(id, reversed) {
   const refreshBtn = view.querySelector('#refresh');
   let stations = null;
   let shown = new Map();
+  // null means "now": the featured next departure. Otherwise every departure between start and end.
+  let range = null;
 
   // Opening a stop list fetches the rest of the line when the source did not send it.
   list.addEventListener(
@@ -620,6 +690,13 @@ function renderRoute(id, reversed) {
     const featured = upcoming[0] ?? travelling[0];
     const section = (title, items) =>
       items.length ? `<h2 class="list-title">${title}</h2><div class="rows">${items.map((x) => row(x, from, to)).join('')}</div>` : '';
+    if (range) {
+      list.innerHTML = trips.length
+        ? `<div class="rows">${trips.map((x) => row(x, from, to)).join('')}</div>`
+        : `<p class="empty">${t('when.none')}</p>`;
+      list.querySelectorAll('details').forEach((d) => (d.open = open.has(d.dataset.key)));
+      return;
+    }
     list.innerHTML = featured
       ? `${hero(featured, from, to)}
          ${section(t('train.onTheWay'), travelling.filter((x) => x !== featured))}
@@ -635,9 +712,12 @@ function renderRoute(id, reversed) {
       stations ??= await resolvedRoute(route);
       const from = reversed ? stations.to : stations.from;
       const to = reversed ? stations.from : stations.to;
+      const asked = range;
       const { trips, errors } = await findTrains(from, to, {
-        onUpdate: (partial) => partial.length && show(partial, from, to),
+        window: range,
+        onUpdate: (partial) => asked === range && partial.length && show(partial, from, to),
       });
+      if (asked !== range) return;
       if (ticket !== renderTicket) return;
       show(trips, from, to);
       const down = Object.keys(errors).map((k) => t('route.sourceDown', { source: SOURCE_NAMES[k] }));
@@ -652,6 +732,41 @@ function renderRoute(id, reversed) {
   };
 
   refreshBtn.addEventListener('click', load);
+
+  // "Now" or a day with a time range; the range defaults to the next two hours.
+  const form = view.querySelector('#when-form');
+  const day = view.querySelector('#when-day');
+  const fromTime = view.querySelector('#when-from');
+  const toTime = view.querySelector('#when-to');
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const later = new Date(now.getTime() + 2 * 60 * 60_000);
+  day.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  fromTime.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  toTime.value = later.getDate() === now.getDate() ? `${pad(later.getHours())}:${pad(later.getMinutes())}` : '23:59';
+
+  const applyWindow = () => {
+    if (!day.value || !fromTime.value || !toTime.value) return;
+    const start = new Date(`${day.value}T${fromTime.value}`).getTime();
+    let end = new Date(`${day.value}T${toTime.value}`).getTime();
+    // "22:00 to 01:00" runs past midnight.
+    if (end <= start) end += 24 * 60 * 60_000;
+    range = { start, end };
+    list.innerHTML = '<div class="hero placeholder"><span class="skeleton"></span></div>';
+    load();
+  };
+  [day, fromTime, toTime].forEach((input) => input.addEventListener('change', applyWindow));
+  view.querySelectorAll('[data-when]').forEach((chip) =>
+    chip.addEventListener('click', () => {
+      const pick = chip.dataset.when === 'pick';
+      view.querySelectorAll('[data-when]').forEach((c) => c.classList.toggle('on', c === chip));
+      form.hidden = !pick;
+      if (pick) return applyWindow();
+      range = null;
+      load();
+    }),
+  );
+
   view.querySelector('#delete').addEventListener('click', async () => {
     if (!confirm(t('route.deleteConfirm', { name: route.name }))) return;
     await save(() => store.removeRoute(route.id));
