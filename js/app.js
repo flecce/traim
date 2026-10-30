@@ -290,13 +290,13 @@ function routeCard(r) {
   return `
     <li>
       <a class="route-card" href="#/route/${id}" id="card-${id}">
-        <span class="rc-top">
-          <span class="rc-name">${modeIcon(routeMode(r))}${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
-          <span class="pill rc-count" id="count-${id}" hidden></span>
-        </span>
+        <span class="rc-name">${modeIcon(routeMode(r))}${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
         <span class="rc-live" id="live-${id}"></span>
-        <span class="rc-main" id="next-${id}"><span class="skeleton"></span></span>
+        <span class="rc-row">
+          <span class="rc-main" id="next-${id}"><span class="skeleton"></span></span>
+          <span class="pill rc-count" id="count-${id}" hidden></span>
+        </span>
         <span class="rc-actual" id="actual-${id}"></span>
         <span class="rc-then" id="then-${id}"></span>
       </a>
@@ -335,16 +335,7 @@ async function loadNext(route, ticket, departures) {
       main.innerHTML = `<span class="muted">${t(routeMode(route) === 'bus' ? 'home.noBuses' : 'home.noTrains')}</span>`;
       return;
     }
-    main.innerHTML = `
-      <span class="big-time">${hhmm(next.depPlanned)}</span>
-      ${delayBadge(next)}
-      ${
-        next.mode === 'bus'
-          ? `<span class="rc-platform">${esc(next.number)}</span>`
-          : next.platform
-            ? `<span class="rc-platform">${platformText(next)}</span>`
-            : ''
-      }`;
+    main.innerHTML = `<span class="big-time">${hhmm(next.depPlanned)}</span>${delayBadge(next)}`;
     // Arrival of that train: the timetable one, struck through when the real one differs.
     el('arr').innerHTML = shift(next.arrPlanned, next.arrExpected)
       ? `<s>${hhmm(next.arrPlanned)}</s> ${hhmm(next.arrExpected)}`
@@ -358,7 +349,13 @@ async function loadNext(route, ticket, departures) {
     count.textContent = countdown(next);
     count.hidden = !count.textContent;
     const later = upcoming.slice(1, 3).map((x) => hhmm(x.depPlanned));
-    then.textContent = later.length ? t('home.then', { times: later.join(' · ') }) : '';
+    // The platform (or the bus line) leads the last line, so the name on top has the whole width.
+    then.innerHTML = [
+      next.mode === 'bus' ? esc(next.number) : next.platform ? platformText(next) : '',
+      later.length ? t('home.then', { times: later.join(' · ') }) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
     departures.set(route.id, next.depExpected);
     highlightSoonest(departures);
   };
