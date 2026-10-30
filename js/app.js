@@ -123,12 +123,24 @@ function today() {
   return `${date.charAt(0).toUpperCase()}${date.slice(1)} · ${hhmm(Date.now())}`;
 }
 
+// While on, the home lists routes for sorting instead of opening them, so a scroll never moves a card.
+let reordering = false;
+
 function renderHome() {
   const routes = store.getRoutes();
+  if (reordering && routes.length > 1) return renderReorder(routes);
+  reordering = false;
   view.innerHTML = `
     <header class="hello">
-      <p class="hello-date">${today()}</p>
-      <h1>${greeting()}</h1>
+      <div>
+        <p class="hello-date">${today()}</p>
+        <h1>${greeting()}</h1>
+      </div>
+      ${
+        routes.length > 1
+          ? `<button class="icon-btn" id="reorder" aria-label="${t('home.reorder')}" title="${t('home.reorder')}">${icons.reorder}</button>`
+          : ''
+      }
     </header>
     ${
       routes.length
@@ -140,9 +152,90 @@ function renderHome() {
            </div>`
     }`;
 
+  view.querySelector('#reorder')?.addEventListener('click', () => {
+    reordering = true;
+    render();
+  });
+
   const ticket = renderTicket;
   const departures = new Map();
   routes.forEach((r) => loadNext(r, ticket, departures));
+}
+
+function renderReorder(routes) {
+  view.innerHTML = `
+    <header class="hello">
+      <div>
+        <h1>${t('home.reorder')}</h1>
+        <p class="hello-date">${t('home.reorderHint')}</p>
+      </div>
+      <button class="btn primary" id="reorder-done">${t('home.reorderDone')}</button>
+    </header>
+    <ul class="routes sorting">
+      ${routes
+        .map((r) => {
+          const p = path(r.from, r.to);
+          return `
+            <li class="sort-item" data-id="${esc(r.id)}">
+              <span class="sort-grip" aria-hidden="true">${icons.grip}</span>
+              <span class="sort-text">
+                <span class="rc-name">${esc(r.name)}</span>
+                ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
+              </span>
+              <button class="icon-btn sort-up" data-move="-1" aria-label="${t('home.moveUp')}">${icons.chevron}</button>
+              <button class="icon-btn" data-move="1" aria-label="${t('home.moveDown')}">${icons.chevron}</button>
+            </li>`;
+        })
+        .join('')}
+    </ul>`;
+
+  const list = view.querySelector('.sorting');
+  const saveOrder = () => save(() => store.reorderRoutes([...list.children].map((li) => li.dataset.id)));
+
+  view.querySelector('#reorder-done').addEventListener('click', () => {
+    reordering = false;
+    render();
+  });
+
+  list.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-move]');
+    if (!button) return;
+    const li = button.closest('li');
+    if (button.dataset.move === '-1') li.previousElementSibling?.before(li);
+    else li.nextElementSibling?.after(li);
+    button.focus();
+    saveOrder();
+  });
+
+  // Dragging a card: it swaps place with the card under the finger once past that card's middle.
+  let dragged = null;
+  list.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('button')) return;
+    dragged = event.target.closest('li');
+    if (!dragged) return;
+    event.preventDefault();
+    dragged.setPointerCapture(event.pointerId);
+    dragged.classList.add('dragging');
+  });
+  list.addEventListener('pointermove', (event) => {
+    if (!dragged) return;
+    const over = [...list.children].find((li) => {
+      const box = li.getBoundingClientRect();
+      return li !== dragged && event.clientY >= box.top && event.clientY <= box.bottom;
+    });
+    if (!over) return;
+    const box = over.getBoundingClientRect();
+    if (event.clientY < box.top + box.height / 2) over.before(dragged);
+    else over.after(dragged);
+  });
+  const drop = () => {
+    if (!dragged) return;
+    dragged.classList.remove('dragging');
+    dragged = null;
+    saveOrder();
+  };
+  list.addEventListener('pointerup', drop);
+  list.addEventListener('pointercancel', drop);
 }
 
 function routeCard(r) {
@@ -642,7 +735,10 @@ function render() {
   window.scrollTo(0, 0);
 }
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => {
+  reordering = false;
+  render();
+});
 settings.applySettings();
 render();
 

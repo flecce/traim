@@ -59,6 +59,13 @@ export async function updateRoute(id, patch) {
   await persist();
 }
 
+// ids lists every route in the wanted order.
+export async function reorderRoutes(ids) {
+  const byId = new Map(routes.map((r) => [r.id, r]));
+  routes = ids.map((id) => byId.get(id)).filter(Boolean);
+  await persist();
+}
+
 export async function removeRoute(id) {
   routes = routes.filter((r) => r.id !== id);
   await persist();
