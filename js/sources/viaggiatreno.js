@@ -112,7 +112,10 @@ function toTrip(s, fromCode, toCode, now) {
     ...all.slice(j + 1).map((f, k) => outside(f, j + 1 + k)),
   ];
 
-  const cancelled = s.provvedimento === 1 || a.actualFermataType === 3 || b.actualFermataType === 3;
+  // tipoTreno "ST" is a train cancelled outright; "PP", "SI" and "SF" are cancelled on part of the line,
+  // which only matters when one of the two stations is among the suppressed stops (actualFermataType 3).
+  const cancelled =
+    s.provvedimento === 1 || s.tipoTreno === 'ST' || a.actualFermataType === 3 || b.actualFermataType === 3;
   const platformReal = a.binarioEffettivoPartenzaDescrizione?.trim();
   const platformPlanned = a.binarioProgrammatoPartenzaDescrizione?.trim();
 

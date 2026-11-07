@@ -319,6 +319,7 @@ async function loadNext(route, ticket, departures) {
     const upcoming = trips.filter((x) => x.status !== 'travelling');
     const travelling = trips.filter((x) => x.status === 'travelling');
     const next = upcoming[0] ?? trips[0];
+    const struck = (x, text) => (x.status === 'cancelled' ? `<s>${text}</s>` : text);
     const count = el('count');
     const then = el('then');
     el('live').innerHTML = travelling
@@ -335,11 +336,12 @@ async function loadNext(route, ticket, departures) {
       main.innerHTML = `<span class="muted">${t(routeMode(route) === 'bus' ? 'home.noBuses' : 'home.noTrains')}</span>`;
       return;
     }
-    main.innerHTML = `<span class="big-time">${hhmm(next.depPlanned)}</span>${delayBadge(next)}`;
+    main.innerHTML = `<span class="big-time">${struck(next, hhmm(next.depPlanned))}</span>${delayBadge(next)}`;
     // Arrival of that train: the timetable one, struck through when the real one differs.
-    el('arr').innerHTML = shift(next.arrPlanned, next.arrExpected)
-      ? `<s>${hhmm(next.arrPlanned)}</s> ${hhmm(next.arrExpected)}`
-      : hhmm(next.arrPlanned);
+    el('arr').innerHTML =
+      next.status !== 'cancelled' && shift(next.arrPlanned, next.arrExpected)
+        ? `<s>${hhmm(next.arrPlanned)}</s> ${hhmm(next.arrExpected)}`
+        : struck(next, hhmm(next.arrPlanned));
     el('actual').innerHTML = actualLine(
       next,
       atStop(next),
@@ -348,7 +350,7 @@ async function loadNext(route, ticket, departures) {
     );
     count.textContent = countdown(next);
     count.hidden = !count.textContent;
-    const later = upcoming.slice(1, 3).map((x) => hhmm(x.depPlanned));
+    const later = upcoming.slice(1, 3).map((x) => struck(x, hhmm(x.depPlanned)));
     // The platform (or the bus line) leads the last line, so the name on top has the whole width.
     then.innerHTML = [
       next.mode === 'bus' ? esc(next.number) : next.platform ? platformText(next) : '',
@@ -356,7 +358,10 @@ async function loadNext(route, ticket, departures) {
     ]
       .filter(Boolean)
       .join(' · ');
-    departures.set(route.id, next.depExpected);
+    // A cancelled train does not make its route the soonest one.
+    const running = upcoming.find((x) => x.status !== 'cancelled');
+    if (running) departures.set(route.id, running.depExpected);
+    else departures.delete(route.id);
     highlightSoonest(departures);
   };
   try {
@@ -512,7 +517,7 @@ function track(trip) {
 }
 
 function position(trip, from) {
-  if (trip.status === 'cancelled') return t('pos.cancelled');
+  if (trip.status === 'cancelled') return t(trip.mode === 'bus' ? 'pos.busCancelled' : 'pos.cancelled');
   const stops = trip.stops;
   const here = stops.findIndex((s) => s.here);
   const last = stops.findLastIndex((s) => s.passed);

@@ -87,6 +87,7 @@ const dict = {
     'badge.early': '{n} min in anticipo',
 
     'pos.cancelled': 'Treno soppresso',
+    'pos.busCancelled': 'Corsa soppressa',
     'pos.at': 'Fermo a {station}',
     'pos.between': 'Tra {a} e {b}',
     'pos.lastSeen': 'Ultimo rilevamento: {station} alle {time}',
@@ -220,6 +221,7 @@ const dict = {
     'badge.early': '{n} min early',
 
     'pos.cancelled': 'Train cancelled',
+    'pos.busCancelled': 'Bus cancelled',
     'pos.at': 'Stopped at {station}',
     'pos.between': 'Between {a} and {b}',
     'pos.lastSeen': 'Last seen: {station} at {time}',
@@ -352,6 +354,7 @@ const dict = {
     'badge.early': '{n} Min. zu früh',
 
     'pos.cancelled': 'Zug fällt aus',
+    'pos.busCancelled': 'Fahrt fällt aus',
     'pos.at': 'Steht in {station}',
     'pos.between': 'Zwischen {a} und {b}',
     'pos.lastSeen': 'Zuletzt erfasst: {station} um {time}',

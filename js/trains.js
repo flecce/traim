@@ -75,10 +75,15 @@ export async function loadRoute(trip) {
 
 // ViaggiaTreno wins for trains present in both: it reports where the train was actually detected.
 // Trains already on their way are always kept, on top of `max` upcoming departures.
+// A cancellation reported by either source counts: they are not always updated at the same time.
 function merge(results, max) {
-  const vtTrips = results.vt ?? [];
+  const staTrips = results.sta ?? [];
+  const staCancelled = new Set(staTrips.filter((t) => t.status === 'cancelled').map((t) => t.trainNumber));
+  const vtTrips = (results.vt ?? []).map((t) =>
+    staCancelled.has(t.trainNumber) && t.status !== 'travelling' ? { ...t, status: 'cancelled' } : t,
+  );
   const vtNumbers = new Set(vtTrips.map((t) => t.trainNumber));
-  const all = [...vtTrips, ...(results.sta ?? []).filter((t) => !vtNumbers.has(t.trainNumber))].sort(
+  const all = [...vtTrips, ...staTrips.filter((t) => !vtNumbers.has(t.trainNumber))].sort(
     (a, b) => a.depPlanned - b.depPlanned,
   );
   const travelling = all.filter((t) => t.status === 'travelling');

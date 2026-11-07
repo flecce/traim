@@ -106,7 +106,12 @@ function toTrip(rides, now) {
   const tr = leg.transportation ?? {};
   const statuses = rides.flatMap((r) => r.realtimeStatus ?? []);
   const realtime = statuses.includes('MONITORED');
-  const cancelled = statuses.some((s) => s.includes('CANCEL'));
+  // TRIP_CANCELLED for the whole ride; the two stops can also be cancelled on their own.
+  const ends = rides.flatMap((r) => [r.origin, r.destination]);
+  const cancelled =
+    rides.some((r) => r.isCancelled) ||
+    statuses.some((s) => s.includes('CANCEL')) ||
+    ends.some((s) => s?.isCancelled || (s?.realtimeStatus ?? []).some((x) => x.includes('CANCEL')));
   const upcoming = stops.find((s) => !s.passed) ?? b;
   const delay = realtime ? Math.round((upcoming.expected - upcoming.planned) / MINUTE) : null;
   const props = tr.properties ?? {};
