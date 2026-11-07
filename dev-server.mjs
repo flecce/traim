@@ -53,4 +53,10 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('Not found');
   }
-}).listen(port, () => console.log(`Traim su http://localhost:${port}`));
+})
+  .on('error', (err) => {
+    if (err.code !== 'EADDRINUSE') throw err;
+    console.error(`La porta ${port} è già in uso: un altro dev-server è attivo? Chiudilo o usa node dev-server.mjs <porta>.`);
+    process.exit(1);
+  })
+  .listen(port, () => console.log(`Traim su http://localhost:${port}`));
