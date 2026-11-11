@@ -15,6 +15,7 @@ const SHELL = [
   'js/google.js',
   'js/i18n.js',
   'js/icons.js',
+  'js/plans.js',
   'js/pwa.js',
   'js/settings.js',
   'js/store.js',

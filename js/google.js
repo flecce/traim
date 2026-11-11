@@ -4,7 +4,7 @@ import { AppError } from './errors.js';
 // drive.file only grants access to files this app created, so the spreadsheet stays isolated.
 const SCOPES = 'openid email profile https://www.googleapis.com/auth/drive.file';
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
-export const TABS = { routes: 'Routes', settings: 'Settings' };
+export const TABS = { routes: 'Routes', settings: 'Settings', plans: 'Plans' };
 // The session outlives page reloads: the user stays signed in until they sign out.
 // The access token itself expires after an hour and is renewed on the next user action.
 const SESSION_KEY = 'traim.google';
@@ -86,6 +86,7 @@ export function signOut() {
   expiresAt = 0;
   user = null;
   spreadsheetId = null;
+  opening = null;
   saveSession();
 }
 
@@ -126,16 +127,29 @@ export async function reconnect() {
 
 const range = (r) => encodeURIComponent(r);
 
-async function spreadsheet() {
-  if (spreadsheetId) return spreadsheetId;
-  const q = encodeURIComponent(
-    `name='${config.spreadsheetName}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
-  );
-  const list = await gfetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
-  const tabs = Object.values(TABS);
+// Opened once per page load, even with the id remembered: a sheet made by an older version
+// may lack tabs added since (like Plans). Shared by concurrent callers so no tab is added twice.
+let opening = null;
+function spreadsheet() {
+  opening ??= openSpreadsheet().catch((err) => {
+    opening = null;
+    throw err;
+  });
+  return opening;
+}
 
-  if (list.files.length) {
-    const id = list.files[0].id;
+async function openSpreadsheet() {
+  const tabs = Object.values(TABS);
+  let id = spreadsheetId;
+  if (!id) {
+    const q = encodeURIComponent(
+      `name='${config.spreadsheetName}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+    );
+    const list = await gfetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+    id = list.files[0]?.id ?? null;
+  }
+
+  if (id) {
     const meta = await gfetch(`${SHEETS}/${id}?fields=sheets.properties.title`);
     const existing = new Set(meta.sheets.map((s) => s.properties.title));
     const missing = tabs.filter((tab) => !existing.has(tab));

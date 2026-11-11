@@ -19,6 +19,10 @@ export const icons = {
     '<path d="M6 3h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M4 11h16M8 15h.01M16 15h.01M7 18v2M17 18v2M4 7h16"/>',
   ),
   calendar: svg('<path d="M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>'),
+  plan: svg('<path d="m3 11 19-9-9 19-2-8-8-2z"/>'),
+  close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
+  star: svg('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>'),
+  walk: svg('<circle cx="13" cy="4" r="2"/><path d="m9 21 2.5-6.5L14 17v4M7 12l2-4 4-1 2 4 3 1M11.5 14.5 12 9"/>'),
   reorder: svg('<path d="M7 4v16M7 4 3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4"/>'),
   grip: svg(
     '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',

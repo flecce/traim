@@ -1,9 +1,10 @@
 import { config } from './config.js';
 import { LANGUAGES, locale, t } from './i18n.js';
 import { icons } from './icons.js';
-import { findTrains, knownRoute, loadRoute, resolveStation, searchStations } from './trains.js';
+import { findTrains, knownRoute, loadRoute, planJourneys, resolveStation, searchStations, searchStops } from './trains.js';
 import * as google from './google.js';
 import * as store from './store.js';
+import * as plans from './plans.js';
 import { readLocal, writeLocal } from './store.js';
 import * as settings from './settings.js';
 import * as pwa from './pwa.js';
@@ -129,6 +130,89 @@ function pageHead(title, subtitle = '', actions = '') {
     </header>`;
 }
 
+/* ---------- Card colours ---------- */
+
+// Keys saved on the route; the colours themselves are in the CSS (.tint-<key>).
+const COLORS = ['green', 'blue', 'purple', 'pink', 'red', 'orange', 'yellow', 'gray'];
+const tintClass = (color) => (COLORS.includes(color) ? `has-color tint-${color}` : '');
+
+function colorPicker(value) {
+  const swatch = (key) => {
+    const label = t(`color.${key || 'none'}`);
+    return `
+      <label class="swatch ${key ? `tint-${key}` : 'swatch-none'}" title="${label}">
+        <input type="radio" name="color" value="${key}" ${(value ?? '') === key ? 'checked' : ''} aria-label="${label}">
+        <span></span>
+      </label>`;
+  };
+  return `
+    <div class="field">
+      <span class="field-label">${t('color.label')}</span>
+      <div class="swatches" role="radiogroup" aria-label="${t('color.label')}">${['', ...COLORS].map(swatch).join('')}</div>
+    </div>`;
+}
+
+const pickedColor = (root) => root.querySelector('input[name=color]:checked')?.value || null;
+
+/* ---------- Date and time: "now" (live) unless another moment is picked ---------- */
+
+// Start of the departures shown on the home and in the planner, or null for live.
+// Kept while moving between pages, back to live on every app start.
+let when = null;
+const HOURS_AFTER = 6 * 60 * 60_000;
+
+const pad = (n) => String(n).padStart(2, '0');
+const dayValue = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const timeValue = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function longDate(ms) {
+  const date = new Date(ms).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
+  return `${date.charAt(0).toUpperCase()}${date.slice(1)}`;
+}
+
+// The "now / pick" chips and the day and time fields. `extra` goes at the end of the chip row.
+function whenBar(extra = '') {
+  const at = new Date(when ?? Date.now());
+  return `
+    <div class="chips">
+      <button type="button" class="chip ${when ? '' : 'on'}" data-when="now" aria-pressed="${!when}">
+        <span class="live-dot" aria-hidden="true"></span>${t('when.now')}
+      </button>
+      <button type="button" class="chip ${when ? 'on' : ''}" data-when="pick" aria-pressed="${Boolean(when)}">${icons.calendar}${t('when.pick')}</button>
+      ${extra}
+    </div>
+    <form class="when-form card" id="when-form" ${when ? '' : 'hidden'}>
+      <label>${t('when.day')}<input type="date" id="when-day" required value="${dayValue(at)}"></label>
+      <label>${t('when.time')}<input type="time" id="when-time" required value="${timeValue(at)}"></label>
+    </form>`;
+}
+
+// onChange runs after the moment changed; the page then reloads its data.
+function bindWhen(onChange) {
+  const form = view.querySelector('#when-form');
+  const day = view.querySelector('#when-day');
+  const hour = view.querySelector('#when-time');
+  const apply = () => {
+    if (!day.value || !hour.value) return;
+    when = new Date(`${day.value}T${hour.value}`).getTime();
+    onChange();
+  };
+  [day, hour].forEach((input) => input.addEventListener('change', apply));
+  form.addEventListener('submit', (e) => e.preventDefault());
+  view.querySelectorAll('[data-when]').forEach((chip) =>
+    chip.addEventListener('click', () => {
+      if (chip.dataset.when === 'now') {
+        when = null;
+        return onChange();
+      }
+      if (!when) apply();
+    }),
+  );
+}
+
+// Countdowns only help when the picked moment is close; not for a train tomorrow.
+const showCountdown = (depExpected) => !when || depExpected - Date.now() < 3 * 60 * 60_000;
+
 /* ---------- Home: greeting and saved routes with their next trains ---------- */
 
 function greeting() {
@@ -136,9 +220,10 @@ function greeting() {
   return t(hour < 12 ? 'home.morning' : hour < 18 ? 'home.afternoon' : 'home.evening');
 }
 
+// Today and the time, or the picked day with "from 08:00".
 function today() {
-  const date = new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
-  return `${date.charAt(0).toUpperCase()}${date.slice(1)} · ${hhmm(Date.now())}`;
+  if (when) return `${longDate(when)} · ${t('when.since', { time: hhmm(when) })}`;
+  return `${longDate(Date.now())} · ${hhmm(Date.now())}`;
 }
 
 // While on, the home lists routes for sorting instead of opening them, so a scroll never moves a card.
@@ -160,7 +245,7 @@ function renderHome() {
           : ''
       }
     </header>
-    ${filterChips(routes)}
+    ${routes.length ? whenBar(filterChips(routes)) : ''}
     ${
       routes.length
         ? `<ul class="routes">${shownRoutes(routes).map(routeCard).join('')}</ul>`
@@ -181,6 +266,7 @@ function renderHome() {
       render();
     }),
   );
+  if (routes.length) bindWhen(render);
 
   const ticket = renderTicket;
   const departures = new Map();
@@ -205,7 +291,8 @@ function filterChips(routes) {
   const f = homeFilter(routes);
   const chip = (value, label, icon = '') =>
     `<button type="button" class="chip ${f === value ? 'on' : ''}" data-filter="${value}" aria-pressed="${f === value}">${icon}${label}</button>`;
-  return `<div class="chips">${chip('all', t('filter.all'))}${chip('train', t('filter.train'), icons.train)}${chip('bus', t('filter.bus'), icons.bus)}</div>`;
+  // Goes in the same row as the date chips, after a divider.
+  return `<span class="chips-sep" aria-hidden="true"></span>${chip('all', t('filter.all'))}${chip('train', t('filter.train'), icons.train)}${chip('bus', t('filter.bus'), icons.bus)}`;
 }
 
 function renderReorder(routes) {
@@ -289,7 +376,7 @@ function routeCard(r) {
   const id = esc(r.id);
   return `
     <li>
-      <a class="route-card" href="#/route/${id}" id="card-${id}">
+      <a class="route-card ${tintClass(r.color)}" href="#/route/${id}" id="card-${id}">
         <span class="rc-name">${modeIcon(routeMode(r))}${esc(r.name)} <span class="rc-arr" id="arr-${id}"></span></span>
         ${r.name !== p ? `<span class="rc-path">${esc(p)}</span>` : ''}
         <span class="rc-live" id="live-${id}"></span>
@@ -333,7 +420,8 @@ async function loadNext(route, ticket, departures) {
       )
       .join('');
     if (!next) {
-      main.innerHTML = `<span class="muted">${t(routeMode(route) === 'bus' ? 'home.noBuses' : 'home.noTrains')}</span>`;
+      const none = when ? 'home.noneAfter' : routeMode(route) === 'bus' ? 'home.noBuses' : 'home.noTrains';
+      main.innerHTML = `<span class="muted">${t(none)}</span>`;
       return;
     }
     main.innerHTML = `<span class="big-time">${struck(next, hhmm(next.depPlanned))}</span>${delayBadge(next)}`;
@@ -348,7 +436,7 @@ async function loadNext(route, ticket, departures) {
       { time: hhmm(next.depExpected) },
       shift(next.depPlanned, next.depExpected),
     );
-    count.textContent = countdown(next);
+    count.textContent = showCountdown(next.depExpected) ? countdown(next) : '';
     count.hidden = !count.textContent;
     const later = upcoming.slice(1, 3).map((x) => struck(x, hhmm(x.depPlanned)));
     // The platform (or the bus line) leads the last line, so the name on top has the whole width.
@@ -366,7 +454,12 @@ async function loadNext(route, ticket, departures) {
   };
   try {
     const { from, to } = await resolvedRoute(route);
-    const { trips } = await findTrains(from, to, { max: 3, onUpdate: (partial) => partial.length && show(partial) });
+    const { trips } = await findTrains(from, to, {
+      max: 3,
+      // A picked moment lists the departures from then on, as the route page does for a time range.
+      window: when ? { start: when, end: when + HOURS_AFTER } : null,
+      onUpdate: (partial) => partial.length && show(partial),
+    });
     show(trips);
   } catch {
     const main = el('next');
@@ -381,7 +474,8 @@ const modeIcon = (mode) =>
   `<span class="mode mode-${mode === 'bus' ? 'bus' : 'train'}" title="${t(mode === 'bus' ? 'mode.bus' : 'mode.train')}">${mode === 'bus' ? icons.bus : icons.train}</span>`;
 
 // wantedMode() returns the only kind of stop that can be picked, or null for any.
-function stationPicker(input, list, onPick, wantedMode = () => null) {
+// search defaults to every source; the planner passes its STA-only search.
+function stationPicker(input, list, onPick, wantedMode = () => null, search = searchStations) {
   let timer = null;
   let query = 0;
 
@@ -396,7 +490,7 @@ function stationPicker(input, list, onPick, wantedMode = () => null) {
     timer = setTimeout(async () => {
       const mine = ++query;
       try {
-        const found = (await searchStations(text)).slice(0, 12);
+        const found = (await search(text)).slice(0, 12);
         if (mine !== query) return;
         const wanted = wantedMode();
         const only = wanted === 'bus' ? 'new.onlyBus' : 'new.onlyTrain';
@@ -450,6 +544,7 @@ function renderNew() {
         <label for="name">${t('new.name')}</label>
         <input id="name" placeholder="${t('new.namePh')}" enterkeyhint="done">
       </div>
+      ${colorPicker(null)}
       <p class="form-error" id="form-error"></p>
       <button class="btn primary block" type="submit">${t('new.save')}</button>
     </form>`;
@@ -470,7 +565,7 @@ function renderNew() {
       return (error.textContent = t('new.sameError'));
     }
     const name = $('name').value.trim() || path(from, to);
-    await save(() => store.addRoute({ name, from, to }));
+    await save(() => store.addRoute({ name, from, to, color: pickedColor(view) }));
     location.hash = '#/';
   });
 }
@@ -656,6 +751,7 @@ function renderRoute(id, reversed) {
     </form>
     <p class="meta" id="updated"></p>
     <div id="trains"><div class="hero placeholder"><span class="skeleton"></span></div></div>
+    <div class="card settings-block" id="color">${colorPicker(route.color)}</div>
     <button class="link-danger" type="button" id="delete">${t('route.delete')}</button>`;
 
   const ticket = renderTicket;
@@ -740,12 +836,12 @@ function renderRoute(id, reversed) {
   const day = view.querySelector('#when-day');
   const fromTime = view.querySelector('#when-from');
   const toTime = view.querySelector('#when-to');
-  const pad = (n) => String(n).padStart(2, '0');
-  const now = new Date();
+  // Opened from a home showing another moment: start from that moment.
+  const now = new Date(when ?? Date.now());
   const later = new Date(now.getTime() + 2 * 60 * 60_000);
-  day.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  fromTime.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  toTime.value = later.getDate() === now.getDate() ? `${pad(later.getHours())}:${pad(later.getMinutes())}` : '23:59';
+  day.value = dayValue(now);
+  fromTime.value = timeValue(now);
+  toTime.value = later.getDate() === now.getDate() ? timeValue(later) : '23:59';
 
   const applyWindow = () => {
     if (!day.value || !fromTime.value || !toTime.value) return;
@@ -769,15 +865,273 @@ function renderRoute(id, reversed) {
     }),
   );
 
+  view.querySelector('#color').addEventListener('change', () => save(() => store.updateRoute(route.id, { color: pickedColor(view) })));
+
   view.querySelector('#delete').addEventListener('click', async () => {
     if (!confirm(t('route.deleteConfirm', { name: route.name }))) return;
     await save(() => store.removeRoute(route.id));
     location.hash = '#/';
   });
 
-  load();
+  if (when) view.querySelector('[data-when=pick]').click();
+  else load();
   refreshTimer = setInterval(() => {
     if (document.visibilityState === 'visible') load();
+  }, config.refreshSeconds * 1000);
+}
+
+/* ---------- Plan: the best way between two places, train, bus or both ---------- */
+
+// Plans shown the other way round, until the app is reloaded.
+const reversedPlans = new Set();
+
+const minutesBetween = (a, b) => Math.round((b - a) / 60_000);
+
+function changesText(j) {
+  if (!j.changes) return t('plan.direct');
+  return j.changes === 1 ? t('plan.change1') : t('plan.changes', { n: j.changes });
+}
+
+// The badge of the whole journey: cancelled, or the delay at the destination.
+const journeyBadge = (j, compact = false) =>
+  delayBadge({ status: j.cancelled ? 'cancelled' : 'waiting', delay: j.delay, notStarted: false }, compact);
+
+// What breaks a journey or makes it risky, worst first.
+function problems(j) {
+  return [
+    ...j.legs.filter((l) => l.cancelled).map((l) => ({ level: 'bad', text: t('plan.cancelled', { name: esc(l.name) }) })),
+    ...j.transfers.filter((x) => x.missed).map((x) => ({ level: 'bad', text: t('plan.missed', { station: esc(x.at) }) })),
+    ...j.transfers.filter((x) => x.tight).map((x) => ({ level: 'warn', text: t('plan.tight', { station: esc(x.at) }) })),
+  ];
+}
+
+const problemLines = (j) =>
+  problems(j)
+    .map((p) => `<span class="actual ${p.level === 'bad' ? 'bad' : 'late'}">${p.text}</span>`)
+    .join('');
+
+// "Bus 201" -> "201": the icon already says it is a bus.
+const legChips = (j) =>
+  j.legs
+    .map(
+      (l) =>
+        `<span class="leg-chip leg-${l.mode} ${l.cancelled ? 'off' : ''}">${l.mode === 'bus' ? icons.bus : icons.train}${esc(l.mode === 'bus' ? l.name.replace(/^Bus\s+/, '') : l.name)}</span>`,
+    )
+    .join('<span class="leg-sep" aria-hidden="true">›</span>');
+
+// Real departure and arrival when they differ from the timetable.
+function journeyActual(j) {
+  if (j.cancelled) return '';
+  const dep = shift(j.depPlanned, j.depExpected);
+  const arr = shift(j.arrPlanned, j.arrExpected);
+  if (!dep && !arr) return '';
+  const [key, vars] =
+    dep && arr
+      ? ['time.both', { dep: hhmm(j.depExpected), arr: hhmm(j.arrExpected) }]
+      : dep
+        ? ['time.departs', { time: hhmm(j.depExpected) }]
+        : ['time.arrives', { time: hhmm(j.arrExpected) }];
+  return `<span class="actual ${(dep || arr) > 0 ? 'late' : 'early'}">${t(key, vars)}</span>`;
+}
+
+// Every ride with where to get on and off, and the changes between them.
+function legList(j) {
+  const items = j.legs.map((l, i) => {
+    // Each part wraps as a whole; CSS puts the dots between them.
+    const ride = [
+      `${modeIcon(l.mode)}<strong>${esc(l.name)}</strong>`,
+      l.towards && t('plan.towards', { station: esc(l.towards) }),
+      l.mode === 'train' && l.platform && t('train.platform', { platform: esc(l.platform) }),
+    ]
+      .filter(Boolean)
+      .map((s) => `<span>${s}</span>`)
+      .join('');
+    const board = `
+      <li class="${l.cancelled ? 'off' : ''}">
+        <span class="stop-time">${time(l.depPlanned, l.depExpected)}</span>
+        <span class="stop-name">${esc(l.from)}<span class="leg-ride">${ride}</span>${l.cancelled ? delayBadge({ status: 'cancelled' }) : ''}</span>
+      </li>`;
+    const x = j.transfers[i];
+    if (!x) return board;
+    const walk = x.walk ? `<span>${icons.walk}${t('plan.walk', { n: x.walk })}</span>` : '';
+    const level = x.missed ? 'bad' : x.tight ? 'warn' : '';
+    return `${board}
+      <li class="leg-change ${level}">
+        <span class="stop-time">${time(l.arrPlanned, l.arrExpected)}</span>
+        <span class="stop-name">${esc(l.to)}<span class="leg-ride"><span>${t('plan.transfer', { station: esc(x.at), wait: duration(Math.max(0, x.spare + x.walk)) })}</span>${walk}</span></span>
+      </li>`;
+  });
+  const last = j.legs[j.legs.length - 1];
+  items.push(`
+    <li class="leg-end">
+      <span class="stop-time">${time(last.arrPlanned, last.arrExpected)}</span>
+      <span class="stop-name"><strong>${esc(last.to)}</strong></span>
+    </li>`);
+  return `<ol class="stop-list leg-list">${items.join('')}</ol>`;
+}
+
+function bestBlock(j) {
+  const count = showCountdown(j.depExpected) ? countdown({ status: 'waiting', depExpected: j.depExpected }) : '';
+  return `
+    <div class="plan-best">
+      <div class="plan-label">
+        <span class="best-tag">${icons.star}${t('plan.best')}</span>
+        ${count ? `<span class="pill rc-count">${count}</span>` : ''}
+      </div>
+      <div class="plan-times">
+        <span class="big-time">${hhmm(j.depPlanned)}</span><span class="plan-arrow">→</span><span class="big-time">${hhmm(j.arrPlanned)}</span>
+        ${journeyBadge(j)}
+      </div>
+      ${journeyActual(j)}${problemLines(j)}
+      <div class="legs">${legChips(j)}</div>
+      <p class="plan-meta">${duration(minutesBetween(j.depExpected, j.arrExpected))} · ${changesText(j)}</p>
+      <details class="stops plan-details" data-key="${esc(j.key)}">
+        <summary>${t('plan.details')}${icons.chevron}</summary>
+        ${legList(j)}
+      </details>
+    </div>`;
+}
+
+function journeyRow(j) {
+  return `
+    <details class="train-row ${j.ok ? '' : 'cancelled'}" data-key="${esc(j.key)}">
+      <summary>
+        <span class="row-line">
+          <span class="row-time">${hhmm(j.depPlanned)}</span>
+          <span class="row-title">→ ${hhmm(j.arrPlanned)} · ${duration(minutesBetween(j.depExpected, j.arrExpected))}</span>
+          <span class="row-chevron">${icons.chevron}</span>
+        </span>
+        <span class="row-line">
+          <span class="row-sub legs">${legChips(j)}</span>
+          ${journeyBadge(j, true)}
+        </span>
+        ${journeyActual(j)}${problemLines(j)}
+      </summary>
+      <div class="row-body">${legList(j)}</div>
+    </details>`;
+}
+
+const planEnds = (p) => (reversedPlans.has(p.id) ? [p.to, p.from] : [p.from, p.to]);
+
+function planCard(p) {
+  const id = esc(p.id);
+  const [a, b] = planEnds(p);
+  const reversed = reversedPlans.has(p.id);
+  const title = reversed ? path(a, b) : p.name;
+  return `
+    <li class="plan-card" id="plan-${id}">
+      <div class="plan-head">
+        <div class="plan-title">
+          <span class="rc-name">${esc(title)}</span>
+          ${title !== path(a, b) ? `<span class="rc-path">${esc(path(a, b))}</span>` : ''}
+        </div>
+        <button class="icon-btn" type="button" data-swap="${id}" aria-label="${t('route.invert')}" title="${t('route.invert')}">${icons.swap}</button>
+        <button class="icon-btn" type="button" data-remove="${id}" aria-label="${t('plan.delete')}" title="${t('plan.delete')}">${icons.close}</button>
+      </div>
+      <div class="plan-body" id="planbody-${id}"><span class="skeleton"></span></div>
+    </li>`;
+}
+
+async function loadPlan(p, ticket) {
+  const reversed = reversedPlans.has(p.id);
+  const [a, b] = planEnds(p);
+  const body = () => {
+    const el = ticket === renderTicket && reversed === reversedPlans.has(p.id) && document.getElementById(`planbody-${p.id}`);
+    return el || null;
+  };
+  let html;
+  try {
+    const { journeys, best } = await planJourneys(a, b, { at: when });
+    const others = journeys.filter((j) => j !== best).slice(0, 4);
+    html = !journeys.length
+      ? `<p class="muted">${t('plan.none')}</p>`
+      : `${best ? bestBlock(best) : `<div class="error-box">${t('plan.noneOk')}</div>`}
+         ${others.length ? `<h3 class="list-title">${t('plan.others')}</h3><div class="rows">${others.map(journeyRow).join('')}</div>` : ''}`;
+  } catch (err) {
+    html = `<p class="muted">${esc(errText(err))}</p>`;
+  }
+  const el = body();
+  if (!el) return;
+  // Keep expanded journeys expanded across refreshes.
+  const open = new Set([...el.querySelectorAll('details[open]')].map((d) => d.dataset.key));
+  el.innerHTML = html;
+  el.querySelectorAll('details').forEach((d) => (d.open = open.has(d.dataset.key)));
+}
+
+function renderPlan() {
+  const list = plans.getPlans();
+  view.innerHTML = `
+    <header class="hello">
+      <div>
+        <p class="hello-date">${when ? today() : t('plan.subtitle')}</p>
+        <h1>${t('plan.title')}</h1>
+      </div>
+    </header>
+    ${list.length ? `${whenBar()}<ul class="plans">${list.map(planCard).join('')}</ul>` : `<p class="muted plan-empty">${t('plan.empty')}</p>`}
+    <form id="plan-form" class="form card plan-form" autocomplete="off" novalidate>
+      <h2>${t('plan.add')}</h2>
+      <div class="field">
+        <label for="from">${t('new.from')}</label>
+        <input id="from" placeholder="${t('new.fromPh')}" enterkeyhint="next">
+        <ul class="suggestions" id="from-list"></ul>
+      </div>
+      <div class="field">
+        <label for="to">${t('new.to')}</label>
+        <input id="to" placeholder="${t('new.toPh')}" enterkeyhint="next">
+        <ul class="suggestions" id="to-list"></ul>
+      </div>
+      <div class="field">
+        <label for="name">${t('new.name')}</label>
+        <input id="name" placeholder="${t('new.namePh')}" enterkeyhint="done">
+      </div>
+      <p class="form-error" id="form-error"></p>
+      <button class="btn primary block" type="submit">${icons.plus}${t('plan.save')}</button>
+      <p class="muted small">${t('plan.stopsOnly')}</p>
+    </form>
+    <button class="fab" type="button" id="plan-add" aria-label="${t('plan.add')}" title="${t('plan.add')}">${icons.plus}</button>`;
+
+  const ticket = renderTicket;
+  const $ = (id) => view.querySelector(`#${id}`);
+  if (list.length) bindWhen(render);
+
+  // The floating "+" brings up the form at the bottom, ready to type.
+  $('plan-add').addEventListener('click', () => {
+    $('plan-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('from').focus({ preventScroll: true });
+  });
+
+  const picked = { from: null, to: null };
+  stationPicker($('from'), $('from-list'), (s) => (picked.from = s), () => null, searchStops);
+  stationPicker($('to'), $('to-list'), (s) => (picked.to = s), () => null, searchStops);
+  $('plan-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { from, to } = picked;
+    if (!from || !to) return ($('form-error').textContent = t('new.pickError'));
+    if (from.sta === to.sta) return ($('form-error').textContent = t('new.sameError'));
+    const name = $('name').value.trim() || path(from, to);
+    await save(() => plans.addPlan({ name, from, to }));
+    render();
+  });
+
+  view.querySelector('.plans')?.addEventListener('click', async (event) => {
+    const swap = event.target.closest('[data-swap]');
+    const remove = event.target.closest('[data-remove]');
+    const p = list.find((x) => x.id === (swap ?? remove)?.dataset[swap ? 'swap' : 'remove']);
+    if (!p) return;
+    if (remove) {
+      if (!confirm(t('plan.deleteConfirm', { name: p.name }))) return;
+      await save(() => plans.removePlan(p.id));
+      return render();
+    }
+    if (reversedPlans.has(p.id)) reversedPlans.delete(p.id);
+    else reversedPlans.add(p.id);
+    document.getElementById(`plan-${p.id}`).outerHTML = planCard(p);
+    loadPlan(p, ticket);
+  });
+
+  list.forEach((p) => loadPlan(p, ticket));
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') list.forEach((p) => loadPlan(p, ticket));
   }, config.refreshSeconds * 1000);
 }
 
@@ -899,13 +1253,20 @@ pwa.onInstallChange(() => {
 /* ---------- Navigation ---------- */
 
 function renderNav(page = 'home') {
-  const items = { home: [icons.route, t('nav.routes')], new: [icons.plus, t('nav.new')], settings: [icons.settings, t('nav.settings')] };
+  const items = {
+    home: [icons.route, t('nav.routes')],
+    plan: [icons.plan, t('nav.plan')],
+    new: [icons.plus, t('nav.new')],
+    settings: [icons.settings, t('nav.settings')],
+  };
   nav.querySelectorAll('[data-page]').forEach((link) => {
     const [icon, label] = items[link.dataset.page];
     link.innerHTML = `${icon}<span>${label}</span>`;
     link.setAttribute('aria-label', label);
     link.classList.toggle('active', link.dataset.page === page);
   });
+  // Decides where the floating "+" shows on phones (see .nav-add in the CSS).
+  nav.dataset.page = page;
 }
 
 function render() {
@@ -915,9 +1276,10 @@ function render() {
   const [, page, id, flag] = location.hash.split('/');
   if (page === 'new') renderNew();
   else if (page === 'settings') renderSettings();
+  else if (page === 'plan') renderPlan();
   else if (page === 'route' && id) renderRoute(id, flag === 'r');
   else renderHome();
-  renderNav(page === 'new' || page === 'settings' ? page : 'home');
+  renderNav(['new', 'settings', 'plan'].includes(page) ? page : 'home');
   window.scrollTo(0, 0);
 }
 
@@ -931,17 +1293,18 @@ render();
 /* ---------- Drive sync for a remembered sign-in ---------- */
 
 async function syncDrive() {
-  await Promise.all([store.syncFromDrive(), settings.syncWithDrive()]);
+  await Promise.all([store.syncFromDrive(), plans.syncFromDrive(), settings.syncWithDrive()]);
 }
 
-// Pull what other devices changed. Not while a new route is being typed: re-rendering would clear the form.
+// Pull what other devices changed. Not while a new route or plan is being typed: re-rendering would clear the form.
 async function syncAndRefresh() {
   try {
     await syncDrive();
   } catch {
     return;
   }
-  if (!location.hash.startsWith('#/new')) {
+  const typing = location.hash.startsWith('#/plan') && view.querySelector('#plan-form input:not(:placeholder-shown)');
+  if (!location.hash.startsWith('#/new') && !typing) {
     renderNav();
     render();
   }

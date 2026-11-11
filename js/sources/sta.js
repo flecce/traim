@@ -175,6 +175,83 @@ export async function fullRoute(trip) {
   return { before: all.slice(0, i).map(outside), after: all.slice(j + 1).map(outside) };
 }
 
+/* ---------- Journeys for the planner: trains and buses mixed, with changes ---------- */
+
+const RIDE_CLASSES = [...TRAIN_CLASSES, ...BUS_CLASSES];
+
+// One ride of a journey, with the times the passenger cares about: getting on and getting off.
+function toLeg(leg) {
+  const o = leg.origin ?? {};
+  const d = leg.destination ?? {};
+  const depPlanned = time(o.departureTimePlanned);
+  const arrPlanned = time(d.arrivalTimePlanned);
+  const statuses = leg.realtimeStatus ?? [];
+  const realtime = statuses.includes('MONITORED');
+  const bus = isBus(leg);
+  const tr = leg.transportation ?? {};
+  // Minutes on foot to the next ride, as EFA counts them.
+  const walk = (leg.footPathInfo ?? []).filter((f) => f.position === 'AFTER').reduce((n, f) => n + (f.duration ?? 0), 0);
+  return {
+    mode: bus ? 'bus' : 'train',
+    name: rideName(leg),
+    trainNumber: bus ? null : String(tr.properties?.trainNumber ?? tr.number ?? ''),
+    operator: tr.operator?.name ?? null,
+    towards: cleanName(tr.destination?.name),
+    from: cleanName(o.name),
+    to: cleanName(d.name),
+    depPlanned,
+    depExpected: time(o.departureTimeEstimated) ?? depPlanned,
+    arrPlanned,
+    arrExpected: time(d.arrivalTimeEstimated) ?? arrPlanned,
+    platform: o.type === 'platform' && o.disassembledName?.length <= 4 ? o.disassembledName : null,
+    realtime,
+    cancelled:
+      Boolean(leg.isCancelled) ||
+      statuses.some((s) => s.includes('CANCEL')) ||
+      [o, d].some((s) => s.isCancelled || (s.realtimeStatus ?? []).some((x) => x.includes('CANCEL'))),
+    walkAfter: Math.round(walk / 60),
+  };
+}
+
+// Journeys from `from` to `to` leaving from `at` on, by train, bus or both, with up to three changes.
+// Stops are STA ids. Times already include the real-time estimates.
+export async function findJourneys(from, to, at, count = 8) {
+  const when = romeDateTime(at);
+  const params = new URLSearchParams({
+    type_origin: 'any',
+    name_origin: from,
+    type_destination: 'any',
+    name_destination: to,
+    itdDate: when.date,
+    itdTime: when.time,
+    itdTripDateTimeDepArr: 'dep',
+    calcNumberOfTrips: String(count),
+    maxChanges: '3',
+    useRealtime: '1',
+    excludedMeans: 'checkbox',
+  });
+  for (const c of EXCLUDED.bus.filter((c) => !TRAIN_CLASSES.includes(c))) params.set(`exclMOT_${c}`, '1');
+
+  const data = await get('XML_TRIP_REQUEST2', params);
+  const out = [];
+  const seen = new Set();
+  for (const journey of data.journeys ?? []) {
+    // Walks between stops carry no ride class; a journey using anything else (cable car, ...) is left out.
+    const rides = journey.legs.filter((l) => RIDE_CLASSES.includes(l.transportation?.product?.class));
+    const others = journey.legs.filter(
+      (l) => !rides.includes(l) && l.transportation?.product?.class != null && l.transportation.product.class < 90,
+    );
+    if (!rides.length || others.length) continue;
+    const legs = rides.map(toLeg);
+    if (legs.some((l) => !l.depPlanned || !l.arrPlanned)) continue;
+    const key = legs.map((l) => `${l.name}@${l.depPlanned}`).join('+');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, legs });
+  }
+  return out;
+}
+
 // mode is 'train' or 'bus'. Buses may need one change, trains are direct only.
 // start defaults to an hour back, to catch trips already travelling between the two stops.
 export async function findTrips(from, to, now, max, { mode = 'train', start = now - 60 * MINUTE } = {}) {

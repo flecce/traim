@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { AppError } from './errors.js';
-import { sameStation } from './util.js';
+import { MINUTE, sameStation } from './util.js';
 import * as vt from './sources/viaggiatreno.js';
 import * as sta from './sources/sta.js';
 
@@ -23,6 +23,14 @@ export async function searchStations(text) {
     else trains.push({ name: st.name, vt: null, sta: st.sta, mode: 'train' });
   }
   return [...trains.slice(0, 6), ...buses];
+}
+
+// Stops for the planner: STA only, each stop once even when served by both trains and buses.
+export async function searchStops(text) {
+  const seen = new Set();
+  return (await sta.searchStations(text))
+    .filter((s) => !seen.has(s.sta) && seen.add(s.sta))
+    .map((s) => ({ name: s.name, vt: null, sta: s.sta, mode: s.mode }));
 }
 
 // Names already looked up without a match, so they are not searched again on every refresh.
@@ -89,6 +97,67 @@ function merge(results, max) {
   const travelling = all.filter((t) => t.status === 'travelling');
   const upcoming = all.filter((t) => t.status !== 'travelling').slice(0, max);
   return [...travelling, ...upcoming];
+}
+
+/* ---------- Planner: the best way from A to B, train, bus or both ---------- */
+
+// Each change costs this much when comparing journeys: a direct train wins over a bus+train
+// that arrives a minute earlier.
+const CHANGE_COST = 3 * MINUTE;
+
+function assess({ key, legs }) {
+  const first = legs[0];
+  const last = legs[legs.length - 1];
+  // A change is missed when the first ride, delayed, gets in after the second one leaves (walk included).
+  const transfers = legs.slice(1).map((next, i) => {
+    const prev = legs[i];
+    const spare = Math.floor((next.depExpected - prev.arrExpected) / MINUTE) - prev.walkAfter;
+    return { at: next.from, spare, walk: prev.walkAfter, missed: spare < 0, tight: spare >= 0 && spare < 2 };
+  });
+  const cancelled = legs.some((l) => l.cancelled);
+  const missed = transfers.some((x) => x.missed);
+  const realtime = legs.some((l) => l.realtime);
+  return {
+    key,
+    legs,
+    transfers,
+    changes: legs.length - 1,
+    depPlanned: first.depPlanned,
+    depExpected: first.depExpected,
+    arrPlanned: last.arrPlanned,
+    arrExpected: last.arrExpected,
+    delay: realtime ? Math.round((last.arrExpected - last.arrPlanned) / MINUTE) : null,
+    realtime,
+    cancelled,
+    missed,
+    ok: !cancelled && !missed,
+  };
+}
+
+// Journeys leaving from `at` (default now), sorted by departure, and the best one: the earliest real
+// arrival, changes counted as CHANGE_COST each, leaving out cancelled rides and changes that delays break.
+// Stations need an STA id: the planner relies on STA, the only source with buses and changes.
+export async function planJourneys(from, to, { at = null } = {}) {
+  if (!from.sta || !to.sta) throw new AppError('error.noSource');
+  const start = at ?? Date.now();
+  const found = await sta.findJourneys(from.sta, to.sta, start);
+  const journeys = found
+    .map(assess)
+    // EFA also returns a few journeys just before the asked time.
+    .filter((j) => j.depExpected >= start - 30_000)
+    .sort((a, b) => a.depPlanned - b.depPlanned);
+  // Pointless journeys go: one that a usable journey beats by leaving no earlier and arriving no later
+  // (like the evening bus that then waits all night for the first connection).
+  const beats = (y, x) =>
+    y !== x &&
+    y.ok &&
+    y.depExpected >= x.depExpected &&
+    y.arrExpected <= x.arrExpected &&
+    (y.depExpected > x.depExpected || y.arrExpected < x.arrExpected || y.changes < x.changes);
+  const useful = journeys.filter((x) => !journeys.some((y) => beats(y, x)));
+  const score = (j) => j.arrExpected + j.changes * CHANGE_COST;
+  const best = useful.filter((j) => j.ok).reduce((a, b) => (!a || score(b) < score(a) ? b : a), null);
+  return { journeys: useful, best };
 }
 
 // Calls onUpdate(trips, errors) every time a source answers, so the fast one shows up first.

@@ -2,6 +2,9 @@
 
 Web app (HTML, CSS, JS puro, installabile come PWA) per salvare le tue tratte preferite e vedere con un tocco
 il treno corrente e i 3 successivi: orari, ritardo, binario, posizione sulla linea, fonte del dato.
+Ogni card della home può avere un colore; un filtro data/ora (di default "Adesso") mostra le corse di un altro
+momento. La sezione **Plan** salva percorsi tra due fermate (es. Bolzano → Merano) e mostra la soluzione migliore
+tra treni e bus, con cambi, tenendo conto di ritardi, soppressioni e coincidenze perse.
 Interfaccia in italiano, inglese e tedesco.
 
 ## Fonti dati
@@ -46,7 +49,7 @@ poi apri http://localhost:8080.
 ## Dati salvati
 
 Senza accesso, rotte e impostazioni (lingua, tema) restano nel browser (`localStorage`).
-Dopo l'accesso con Google finiscono nel foglio `Traim` sul tuo Drive, con le schede `Routes` e `Settings`
+Dopo l'accesso con Google finiscono nel foglio `Traim` sul tuo Drive, con le schede `Routes`, `Plans` e `Settings`
 (scaricabile come Excel da Sheets: File → Scarica → .xlsx).
 
 Quando accedi:
@@ -69,11 +72,11 @@ Quando accedi:
 | File | Cosa fa |
 | --- | --- |
 | `index.html`, `css/style.css` | Pagina unica, stile mobile-first, tema chiaro/scuro |
-| `js/app.js` | Viste e routing (`#/`, `#/new`, `#/route/<id>[/r]`, `#/settings`) |
+| `js/app.js` | Viste e routing (`#/`, `#/new`, `#/route/<id>[/r]`, `#/plan`, `#/settings`) |
 | `js/trains.js` | Ricerca stazioni e treni su tutte le fonti, unione dei risultati |
 | `js/sources/viaggiatreno.js` | Client ViaggiaTreno |
 | `js/sources/sta.js` | Client EFA di STA |
-| `js/store.js`, `js/settings.js` | Rotte e impostazioni, in locale e su Drive |
+| `js/store.js`, `js/plans.js`, `js/settings.js` | Rotte, percorsi del Plan e impostazioni, in locale e su Drive |
 | `js/google.js` | Login Google (GIS) e lettura/scrittura del foglio |
 | `js/i18n.js` | Testi in it/en/de |
 | `js/icons.js` | Icone SVG dell'interfaccia |
@@ -89,7 +92,9 @@ Quando accedi:
   STA continua a funzionare per le tratte in Alto Adige.
 - ViaggiaTreno non elenca più i treni appena partiti: per quelli in viaggio in Alto Adige il dato arriva da STA.
 - La posizione dei treni STA è stimata dagli orari in tempo reale, non da un rilevamento.
-- Solo treni diretti (niente cambi).
+- Nelle rotte solo treni diretti (niente cambi); i cambi ci sono nel Plan.
+- Il Plan usa solo STA (EFA): fermate in Alto Adige e dintorni. La migliore è quella con l'arrivo reale più
+  presto, contando 3 minuti per ogni cambio; sono escluse corse soppresse e coincidenze che i ritardi fanno perdere.
 - ViaggiaTreno (Akamai) può rifiutare le richieste che arrivano da reti cloud: dalla rete Cloudflare
   rispondeva 403. Se succede anche con Deno Deploy, la versione pubblicata mostra solo i treni STA.
   In locale, con `dev-server.mjs`, ViaggiaTreno funziona.
