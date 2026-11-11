@@ -40,6 +40,21 @@ function toast(message) {
   toastTimer = setTimeout(() => (toastEl.hidden = true), 4000);
 }
 
+// Delete buttons ask to be tapped twice: the first tap shows `label` for a few seconds, the second confirms.
+// Not confirm(): installed apps and embedded browsers may block it, and it then answers "no" at once.
+function confirmTap(button, label) {
+  if (button.classList.contains('armed')) return true;
+  const original = button.innerHTML;
+  button.classList.add('armed');
+  button.innerHTML = label;
+  setTimeout(() => {
+    if (!button.isConnected) return;
+    button.classList.remove('armed');
+    button.innerHTML = original;
+  }, 4000);
+  return false;
+}
+
 async function run(action) {
   try {
     await action();
@@ -867,9 +882,10 @@ function renderRoute(id, reversed) {
 
   view.querySelector('#color').addEventListener('change', () => save(() => store.updateRoute(route.id, { color: pickedColor(view) })));
 
-  view.querySelector('#delete').addEventListener('click', async () => {
-    if (!confirm(t('route.deleteConfirm', { name: route.name }))) return;
-    await save(() => store.removeRoute(route.id));
+  view.querySelector('#delete').addEventListener('click', (event) => {
+    if (!confirmTap(event.currentTarget, esc(t('route.deleteConfirm')))) return;
+    // The route is gone from the list at once; the Drive write may still be running (or waiting for a sign-in).
+    save(() => store.removeRoute(route.id));
     location.hash = '#/';
   });
 
@@ -1113,14 +1129,15 @@ function renderPlan() {
     render();
   });
 
-  view.querySelector('.plans')?.addEventListener('click', async (event) => {
+  view.querySelector('.plans')?.addEventListener('click', (event) => {
     const swap = event.target.closest('[data-swap]');
     const remove = event.target.closest('[data-remove]');
     const p = list.find((x) => x.id === (swap ?? remove)?.dataset[swap ? 'swap' : 'remove']);
     if (!p) return;
     if (remove) {
-      if (!confirm(t('plan.deleteConfirm', { name: p.name }))) return;
-      await save(() => plans.removePlan(p.id));
+      if (!confirmTap(remove, `${icons.close}${esc(t('plan.deleteConfirm'))}`)) return;
+      // Gone from the list at once, as for routes; the Drive write follows.
+      save(() => plans.removePlan(p.id));
       return render();
     }
     if (reversedPlans.has(p.id)) reversedPlans.delete(p.id);

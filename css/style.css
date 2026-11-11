@@ -217,6 +217,23 @@ a { color: var(--accent); }
 }
 
 .icon-btn:hover { background: var(--surface-2); }
+/* First tap on a delete button: it widens to ask for a second one. */
+.icon-btn.armed, .icon-btn.armed:hover {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  padding: 0 12px 0 8px;
+  border-radius: 999px;
+  background: var(--bad-bg);
+  color: var(--bad);
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.icon-btn.armed .icon { width: 18px; height: 18px; }
+.link-danger.armed { font-weight: 600; text-decoration: underline; }
 .icon-btn.spinning .icon { animation: spin 1s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
